@@ -285,6 +285,37 @@ def _evaluate_and_apply_passive_effect(effect, player, item, events):
         clear_passive_from_targets(effect, player, item, events)
 
 
+def _convert_to_battle_buff(action):
+    """
+    アクションをbattle_buffアクションに変換する。
+    パッシブ効果での状態変更をbattle_buff経由で処理するため。
+    """
+    action_type = action.get("type", "")
+    
+    # オーラ系アクションをbattle_buffに変換
+    if action_type in ["PowerAura", "DamageAura", "KeywordAura"]:
+        keyword_mapping = {
+            "PowerAura": "Power",
+            "DamageAura": "Damage",
+            "KeywordAura": action.get("keyword", "Power")
+        }
+        
+        return {
+            "type": "BattleBuff",
+            "target": action.get("target", "Self"),
+            "keyword": keyword_mapping.get(action_type, action.get("keyword", "Power")),
+            "value": action.get("value", 0),
+            "duration": action.get("duration", -1)  # パッシブ効果は基本的に永続
+        }
+    
+    # 既にbattle_buffの場合はそのまま
+    if action_type == "BattleBuff":
+        return action
+    
+    # その他のアクションはそのまま（移動系など）
+    return action
+
+
 def _get_target_zones_from_action(action):
     """
     アクションの target 設定から対象となるゾーンを取得する。
@@ -314,6 +345,7 @@ def apply_passive_effect(eff, player, item, events):
     """
     パッシブ効果を対象カードに適用する。
     拡張されたゾーンフィルタリングに対応。
+    状態変更はbattle_buff経由で処理。
     """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
     
@@ -336,22 +368,28 @@ def apply_passive_effect(eff, player, item, events):
             }
         })
         
+        # アクションをbattle_buffに変換して実行
+        battle_buff_action = _convert_to_battle_buff(act)
+        
         # 実際に付与
         for tgt in targets:
-            events.extend(apply_action(tgt, act, item, player["id"]))
+            events.extend(apply_action(tgt, battle_buff_action, item, player["id"]))
 
 
 def clear_passive_from_targets(eff, player, item, events):
     """
-    以前に付与したパッシブオーラを外す。
+    以前に付与したパッシブ効果を外す。
     拡張されたゾーンフィルタリングに対応。
+    battle_buff経由で適用された効果をクリア。
     """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
     
     for act in eff.get("actions", []):
-        k = act.get("keyword") or act["type"].replace("Aura","")
+        # アクションをbattle_buffに変換してキーワードを取得
+        battle_buff_action = _convert_to_battle_buff(act)
+        k = battle_buff_action.get("keyword", "Power")
         k_mapped = keyword_map(k)
-        dur = int(act.get("duration", -1))
+        dur = int(battle_buff_action.get("duration", -1))
         
         # 対象カード取得（拡張されたゾーン対応）
         targets = resolve_targets(dummy, act, item)

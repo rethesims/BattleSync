@@ -1,7 +1,7 @@
 # test_passive_extensions.py
 # 簡単なテストケース例 - パッシブアビリティ対象拡張の動作確認
 
-from lambda_function import evaluate_condition, _get_target_zones_from_action
+from lambda_function import evaluate_condition, _get_target_zones_from_action, _convert_to_battle_buff
 from helper import get_target_cards, TARGET_ZONES
 
 def test_zone_constants():
@@ -87,6 +87,80 @@ def test_zone_detection():
     
     print("✓ Zone detection helper works correctly")
 
+def test_battle_buff_conversion():
+    """アクションをbattle_buffに変換するテスト"""
+    # PowerAuraの変換テスト
+    power_aura_action = {
+        "type": "PowerAura",
+        "target": "PlayerField",
+        "value": 100,
+        "duration": 2
+    }
+    
+    converted = _convert_to_battle_buff(power_aura_action)
+    expected = {
+        "type": "BattleBuff",
+        "target": "PlayerField",
+        "keyword": "Power",
+        "value": 100,
+        "duration": 2
+    }
+    
+    assert converted == expected
+    print("✓ PowerAura to BattleBuff conversion works correctly")
+    
+    # DamageAuraの変換テスト
+    damage_aura_action = {
+        "type": "DamageAura",
+        "target": "EnemyField",
+        "value": 50
+    }
+    
+    converted = _convert_to_battle_buff(damage_aura_action)
+    expected = {
+        "type": "BattleBuff",
+        "target": "EnemyField",
+        "keyword": "Damage",
+        "value": 50,
+        "duration": -1  # パッシブ効果のデフォルト
+    }
+    
+    assert converted == expected
+    print("✓ DamageAura to BattleBuff conversion works correctly")
+    
+    # KeywordAuraの変換テスト
+    keyword_aura_action = {
+        "type": "KeywordAura",
+        "target": "Self",
+        "keyword": "Protect",
+        "value": 1
+    }
+    
+    converted = _convert_to_battle_buff(keyword_aura_action)
+    expected = {
+        "type": "BattleBuff",
+        "target": "Self",
+        "keyword": "Protect",
+        "value": 1,
+        "duration": -1
+    }
+    
+    assert converted == expected
+    print("✓ KeywordAura to BattleBuff conversion works correctly")
+    
+    # 既にbattle_buffの場合はそのまま
+    battle_buff_action = {
+        "type": "BattleBuff",
+        "target": "Self",
+        "keyword": "Power",
+        "value": 200,
+        "duration": 1
+    }
+    
+    converted = _convert_to_battle_buff(battle_buff_action)
+    assert converted == battle_buff_action
+    print("✓ Existing BattleBuff action remains unchanged")
+
 def run_all_tests():
     """すべてのテストを実行"""
     print("パッシブアビリティ対象拡張のテスト開始...")
@@ -96,6 +170,7 @@ def run_all_tests():
     test_counter_targeting()
     test_extended_conditions()
     test_zone_detection()
+    test_battle_buff_conversion()
     
     print("✓ すべてのテストが成功しました！")
 
