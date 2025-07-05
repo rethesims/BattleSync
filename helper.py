@@ -43,6 +43,18 @@ def keyword_map(k: str) -> str:
     }.get(k, k)
 
 
+# ---------------- target resolution constants ----------------
+TARGET_ZONES = [
+    "Field",
+    "Environment", 
+    "Counter",
+    "Hand",
+    "Deck",
+    "Graveyard",
+    "ExileZone",
+    "DamageZone"
+]
+
 # ---------------- target resolution ----------------
 def resolve_targets(src: Dict[str, Any], action: Dict[str, Any], item: Dict[str, Any]) -> List[Dict]:
     # 1) selectionKey 優先
@@ -95,7 +107,39 @@ def get_target_cards(src: Dict, action: Dict, item: Dict) -> List[Dict]:
         return [c for c in cards if c["ownerId"] == oid and c["zone"] == "Hand"]
     if target == "PlayerDeckTop":
         return [c for c in cards if c["ownerId"] == owner and c["zone"] == "Deck"][: int(action.get("value", 1))]
-    # … 他も同様に…
+    # パッシブアビリティ対象拡張: Environment ゾーン
+    if target == "Environment":
+        return [c for c in cards if c["zone"] == "Environment"]
+    if target == "PlayerEnvironment":
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "Environment"]
+    if target == "EnemyEnvironment":
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "Environment"]
+    # パッシブアビリティ対象拡張: Counter ゾーン
+    if target == "Counter":
+        return [c for c in cards if c["zone"] == "Counter"]
+    if target == "PlayerCounter":
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "Counter"]
+    if target == "EnemyCounter":
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "Counter"]
+    # パッシブアビリティ対象拡張: その他のゾーン
+    if target == "PlayerGraveyard":
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "Graveyard"]
+    if target == "EnemyGraveyard":
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "Graveyard"]
+    if target == "AllGraveyard":
+        return [c for c in cards if c["zone"] == "Graveyard"]
+    if target == "PlayerExileZone":
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "ExileZone"]
+    if target == "EnemyExileZone":
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "ExileZone"]
+    if target == "AllExileZone":
+        return [c for c in cards if c["zone"] == "ExileZone"]
+    if target == "PlayerDamageZone":
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "DamageZone"]
+    if target == "EnemyDamageZone":
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "DamageZone"]
+    if target == "AllDamageZone":
+        return [c for c in cards if c["zone"] == "DamageZone"]
 
     return []
 
