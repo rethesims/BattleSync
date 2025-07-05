@@ -1,0 +1,224 @@
+schema {
+  query: Query
+  mutation: Mutation
+  subscription: Subscription
+}
+
+type AdvancePhasePayload {
+  events: [PhaseEvent!]!
+  match: Match!
+}
+
+# ## --- Misc -------------------------------------------------------
+type BatchUpdateResult {
+  errorMessage: String
+  success: Boolean!
+}
+
+# ## --- Card -------------------------------------------------------
+type CardInstance {
+  additionalEffects: [AWSJSON!]!
+  baseCardId: String!
+  damage: Int!
+  equippedTo: ID
+  id: ID!
+  isFaceUp: Boolean!
+  level: Int!
+  ownerId: ID!
+  power: Int!
+  statuses: [CardStatus!]!
+  tempStatuses: [CardStatusWithExpire!]!
+  zone: ZoneType!
+}
+
+# ## --- Re-usable objects -----------------------------------------
+type CardStatus {
+  key: String!
+  value: String!
+}
+
+type CardStatusWithExpire {
+  expireTurn: Int!
+  key: String!
+  value: String!
+}
+
+# ## --- Choice / ClientUpdate -------------------------------------
+type ChoiceRequest {
+  options: [String!]!
+  playerId: ID!
+  promptText: String!
+  requestId: ID!
+}
+
+type ChoiceResponse {
+  playerId: ID!
+  requestId: ID!
+  selectedValue: String!
+}
+
+type ClientUpdate {
+  clientId: ID!
+  matchId: ID!
+  payload: AWSJSON!
+  timestamp: AWSDateTime!
+  updateType: String!
+}
+
+# ## --- Match ------------------------------------------------------
+type Match {
+  battleReady: [ID!]!
+  #  -------------- NEW --------------
+  battleStep: BattleStep!
+  cards: [CardInstance!]!
+  choiceRequests: [ChoiceRequest!]!
+  choiceResponses: [ChoiceResponse!]!
+  createdAt: AWSDateTime!
+  id: ID!
+  matchVersion: Int!
+  #  現在のバトル進行段階
+  pendingBattle: PendingBattle
+  phase: String!
+  playerDecks: [PlayerDeck!]!
+  players: [Player!]!
+  status: String!
+  turnCount: Int!
+  turnPlayerId: ID!
+  updatedAt: AWSDateTime!
+}
+
+type MatchWithEvents {
+  events: [TriggerEvent!]!
+  match: Match!
+}
+
+type Mutation {
+  addAdditionalEffect(effect: AWSJSON!, instanceId: ID!, matchId: ID!): Match
+  addTempStatus(matchId: ID!, status: CardTempStatusInput!): Match
+  advancePhase(matchId: ID!): AdvancePhasePayload!
+  clearTempStatus(instanceId: ID!, key: String!, matchId: ID!): Match
+  #  -------- Battle authority mutations --------
+  declareAttack(attackerId: ID!, matchId: ID!, targetId: ID, targetIsLeader: Boolean!): MatchWithEvents
+  #  Turn / phase
+  endTurn(matchId: ID!, playerId: ID!): AdvancePhasePayload!
+  equipCard(equipCardId: ID!, matchId: ID!, targetCardId: ID!): MatchWithEvents!
+  #  Card manipulation
+  moveCard(cardId: ID!, matchId: ID!, toZone: ZoneType!): MatchWithEvents!
+  moveCards(matchId: ID!, moves: [MoveInput!]!): MatchWithEvents!
+  #  Client push
+  publishClientUpdate(clientId: ID!, matchId: ID!, payload: AWSJSON!, updateType: String!): ClientUpdate
+  removeAdditionalEffect(effectSource: String!, instanceId: ID!, matchId: ID!): Match
+  resolveAck(matchId: ID!, sequence: Int!): MatchWithEvents!
+  resolveBattle(matchId: ID!): MatchWithEvents!
+  #  Choice flow
+  sendChoiceRequest(json: String!, matchId: ID!): Match
+  setBlocker(blockerId: ID, matchId: ID!): MatchWithEvents
+  setPlayerReady(matchId: ID!, playerId: ID!): Match
+  setTurnPlayer(matchId: ID!, playerId: ID!): Match
+  spawnToken(cardId: String!, isVanilla: Boolean, matchId: ID!, ownerId: ID!, zone: ZoneType!): MatchWithEvents!
+  startBattle(matchId: ID!, playerId: ID!): Match
+  #  Match lifecycle
+  startMatch(playerName: String!): Match
+  submitChoiceResponse(json: String!, matchId: ID!): Match
+  summonCard(cardId: ID!, matchId: ID!): MatchWithEvents!
+  unequipCard(equipCardId: ID!, matchId: ID!): MatchWithEvents!
+  #  Status / effect updates
+  updateCardStatus(cardId: ID!, key: String!, matchId: ID!, value: String!): Match
+  updateCardStatuses(matchId: ID!, updates: [CardStatusInput!]!): BatchUpdateResult!
+  updateLevelPoints(isPlayer: Boolean!, json: String!, matchId: ID!): Match!
+  updatePhase(matchId: ID!, phase: String!): Match
+}
+
+# ## --- Battle-state objects --------------------------------------
+type PendingBattle {
+  attackerId: ID!
+  #  null ならリーダー
+  blockerId: ID
+  isLeader: Boolean!
+  targetId: ID
+}
+
+type PhaseEvent {
+  payload: AWSJSON
+  type: String!
+}
+
+# ## --- Players & Decks -------------------------------------------
+type Player {
+  deckJson: String
+  id: ID!
+  isReady: Boolean!
+  name: String!
+}
+
+type PlayerDeck {
+  deckJson: String!
+  playerId: ID!
+}
+
+# ## --- Query ------------------------------------------------------
+type Query {
+  getMatch(id: ID!): Match
+  listOpenMatches: [Match!]!
+}
+
+# ## --- Subscription ----------------------------------------------
+type Subscription {
+  onClientUpdate(clientId: ID!, matchId: ID!): ClientUpdate @aws_subscribe(mutations : ["publishClientUpdate"])
+  #  board-only clients
+  onMatchUpdated(matchId: ID!): Match @aws_subscribe(mutations : ["startBattle", "setPlayerReady", "updatePhase", "setTurnPlayer"])
+  #  effect-aware clients
+  onMatchWithEvents(matchId: ID!): MatchWithEvents @aws_subscribe(mutations : ["moveCard", "moveCards", "spawnToken", "equipCard", "unequipCard", "declareAttack"])
+  onPhaseAdvanced(matchId: ID!): AdvancePhasePayload @aws_subscribe(mutations : ["endTurn", "advancePhase"])
+}
+
+type TriggerEvent {
+  payload: AWSJSON
+  type: String!
+}
+
+enum BattleStep {
+  AttackAbility
+  BlockChoice
+  CleanUp
+  Idle
+  Resolve
+}
+
+enum BattleStepMutation {
+  answerBlock
+  declareAttack
+  resolveBattle
+}
+
+# ## --- Enums ------------------------------------------------------
+enum ZoneType {
+  Counter
+  Damage
+  Deck
+  Environment
+  Exile
+  Field
+  Graveyard
+  Hand
+}
+
+input CardStatusInput {
+  instanceId: ID!
+  key: String!
+  value: String!
+}
+
+input CardTempStatusInput {
+  expireTurn: Int!
+  instanceId: ID!
+  key: String!
+  value: String!
+}
+
+#  future use
+### --- Mutation ---------------------------------------------------
+input MoveInput {
+  cardId: ID!
+  toZone: ZoneType!
+}

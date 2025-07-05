@@ -134,10 +134,13 @@ def evaluate_condition(cond: str, card: dict, item: dict) -> bool:
     if not cond:
         return True
     # 自分ターンかつ自分フィールド枚数 == N
+    print(f"Evaluating condition: {cond} for card {card['id']}")
     if cond.startswith("PlayerTurnAndSelfFieldCount=="):
         try:
+            print(f"  Parsing condition: {cond}")
             n = int(cond.split("==",1)[1])
         except ValueError:
+            print(f"  Invalid condition format: {cond}")
             return False
         return (item["turnPlayerId"] == card["ownerId"] and
                 sum(1 for c in item["cards"]
@@ -172,9 +175,11 @@ def refresh_passive_auras(item, events):
             leader_card = {"id": p["leaderId"], "ownerId": p["id"]}
             if evaluate_condition(cond, leader_card, item):
                 # 条件成立→付与
+                print(f"    Condition met, applying effect: {eff}")
                 apply_passive_effect(eff, p, item, events)
             else:
                 # 条件不成立→解除
+                print(f"    Condition not met, clearing effect: {eff}")
                 clear_passive_from_targets(eff, p, item, events)
 
 
