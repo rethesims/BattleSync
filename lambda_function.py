@@ -7,7 +7,7 @@ from importlib import import_module
 # --- 自前モジュール -----------------------------------------
 from helper import (
     add_status, add_temp_status, keyword_map, d, resolve_targets,
-    DecimalEncoder,
+    DecimalEncoder, TARGET_ZONES,
 )
 from action_registry import get as get_handler  # ここがディスパッチ
 import actions  # noqa  (サイドエフェクトで handler 登録)
@@ -129,15 +129,16 @@ def apply_action(card, act, item, owner_id):
 def evaluate_condition(cond: str, card: dict, item: dict) -> bool:
     """
     条件式をパースして真偽を返す。
-    今回は PlayerTurnAndSelfFieldCount==N のみ対応例。
+    拡張されたパッシブアビリティ対象用の条件評価機能。
     """
     if not cond:
         return True
-    # 自分ターンかつ自分フィールド枚数 == N
+    
     print(f"Evaluating condition: {cond} for card {card['id']}")
+    
+    # 自分ターンかつ自分フィールド枚数 == N
     if cond.startswith("PlayerTurnAndSelfFieldCount=="):
         try:
-            print(f"  Parsing condition: {cond}")
             n = int(cond.split("==",1)[1])
         except ValueError:
             print(f"  Invalid condition format: {cond}")
@@ -145,106 +146,305 @@ def evaluate_condition(cond: str, card: dict, item: dict) -> bool:
         return (item["turnPlayerId"] == card["ownerId"] and
                 sum(1 for c in item["cards"]
                     if c["ownerId"] == card["ownerId"] and c["zone"] == "Field") == n)
+    
+    # 敵フィールド枚数の条件評価
+    if cond.startswith("EnemyFieldCount"):
+        try:
+            if ">=" in cond:
+                n = int(cond.split(">=",1)[1])
+                enemy_field_count = sum(1 for c in item["cards"]
+                                      if c["ownerId"] != card["ownerId"] and c["zone"] == "Field")
+                return enemy_field_count >= n
+            elif "==" in cond:
+                n = int(cond.split("==",1)[1])
+                enemy_field_count = sum(1 for c in item["cards"]
+                                      if c["ownerId"] != card["ownerId"] and c["zone"] == "Field")
+                return enemy_field_count == n
+            elif "<=" in cond:
+                n = int(cond.split("<=",1)[1])
+                enemy_field_count = sum(1 for c in item["cards"]
+                                      if c["ownerId"] != card["ownerId"] and c["zone"] == "Field")
+                return enemy_field_count <= n
+        except ValueError:
+            print(f"  Invalid condition format: {cond}")
+            return False
+    
+    # 自分フィールド枚数の条件評価
+    if cond.startswith("PlayerFieldCount"):
+        try:
+            if ">=" in cond:
+                n = int(cond.split(">=",1)[1])
+                player_field_count = sum(1 for c in item["cards"]
+                                       if c["ownerId"] == card["ownerId"] and c["zone"] == "Field")
+                return player_field_count >= n
+            elif "==" in cond:
+                n = int(cond.split("==",1)[1])
+                player_field_count = sum(1 for c in item["cards"]
+                                       if c["ownerId"] == card["ownerId"] and c["zone"] == "Field")
+                return player_field_count == n
+            elif "<=" in cond:
+                n = int(cond.split("<=",1)[1])
+                player_field_count = sum(1 for c in item["cards"]
+                                       if c["ownerId"] == card["ownerId"] and c["zone"] == "Field")
+                return player_field_count <= n
+        except ValueError:
+            print(f"  Invalid condition format: {cond}")
+            return False
+    
+    # Environment ゾーンの条件評価
+    if cond.startswith("EnvironmentCount"):
+        try:
+            if ">=" in cond:
+                n = int(cond.split(">=",1)[1])
+                env_count = sum(1 for c in item["cards"] if c["zone"] == "Environment")
+                return env_count >= n
+            elif "==" in cond:
+                n = int(cond.split("==",1)[1])
+                env_count = sum(1 for c in item["cards"] if c["zone"] == "Environment")
+                return env_count == n
+            elif "<=" in cond:
+                n = int(cond.split("<=",1)[1])
+                env_count = sum(1 for c in item["cards"] if c["zone"] == "Environment")
+                return env_count <= n
+        except ValueError:
+            print(f"  Invalid condition format: {cond}")
+            return False
+    
+    # ターン数の条件評価
+    if cond.startswith("TurnCount"):
+        try:
+            turn_count = item.get("turnCount", 0)
+            if ">=" in cond:
+                n = int(cond.split(">=",1)[1])
+                return turn_count >= n
+            elif "==" in cond:
+                n = int(cond.split("==",1)[1])
+                return turn_count == n
+            elif "<=" in cond:
+                n = int(cond.split("<=",1)[1])
+                return turn_count <= n
+        except ValueError:
+            print(f"  Invalid condition format: {cond}")
+            return False
+    
     # 他の条件式が増えたらここに追加…
+    print(f"  Unknown condition: {cond}")
     return False
 
 # ----------------------
 #  リーダーのパッシブ オーラ更新
 # ----------------------
 def refresh_passive_auras(item, events):
+    """
+    全プレイヤーのリーダーパッシブ効果を再評価し、適用/解除を行う。
+    拡張されたゾーンフィルタリングに対応。
+    """
     for p in item["players"]:
-        leader_def = get_leader_def(p["leaderId"])
-        print(f"Processing leader {p['leaderId']} for player {p['id']}, leader_def: {leader_def}")
-        if not leader_def:
-            continue
+        _process_leader_passive_effects(p, item, events)
 
-        turn_cnt = item.get("turnCount", 0)
-        stage_idx = get_stage_index(turn_cnt)
-        stages = leader_def.get("evolutionStages", [])
-        print(f"  Evolution stage index: {stage_idx} (turn {turn_cnt})")
-        if stage_idx >= len(stages):
-            continue
-        stage_def = stages[stage_idx]
 
-        # すべてのパッシブ効果を評価
-        print(f"  Evaluating passive effects for stage {stage_idx}")
-        for eff in stage_def.get("passiveEffects", []):
-            print(f"    Evaluating effect: {eff}")
-            cond = eff.get("condition", "")
-            # ここで ownerId を持つダミーカードを渡す
-            leader_card = {"id": p["leaderId"], "ownerId": p["id"]}
-            if evaluate_condition(cond, leader_card, item):
-                # 条件成立→付与
-                print(f"    Condition met, applying effect: {eff}")
-                apply_passive_effect(eff, p, item, events)
-            else:
-                # 条件不成立→解除
-                print(f"    Condition not met, clearing effect: {eff}")
-                clear_passive_from_targets(eff, p, item, events)
+def _process_leader_passive_effects(player, item, events):
+    """
+    単一プレイヤーのリーダーパッシブ効果を処理する。
+    """
+    leader_def = get_leader_def(player["leaderId"])
+    print(f"Processing leader {player['leaderId']} for player {player['id']}, leader_def: {leader_def}")
+    if not leader_def:
+        return
+
+    turn_cnt = item.get("turnCount", 0)
+    stage_idx = get_stage_index(turn_cnt)
+    stages = leader_def.get("evolutionStages", [])
+    print(f"  Evolution stage index: {stage_idx} (turn {turn_cnt})")
+    if stage_idx >= len(stages):
+        return
+    stage_def = stages[stage_idx]
+
+    # すべてのパッシブ効果を評価
+    print(f"  Evaluating passive effects for stage {stage_idx}")
+    for eff in stage_def.get("passiveEffects", []):
+        print(f"    Evaluating effect: {eff}")
+        _evaluate_and_apply_passive_effect(eff, player, item, events)
+
+
+def _evaluate_and_apply_passive_effect(effect, player, item, events):
+    """
+    単一パッシブ効果の条件評価と適用/解除を行う。
+    """
+    cond = effect.get("condition", "")
+    # ここで ownerId を持つダミーカードを渡す
+    leader_card = {"id": player["leaderId"], "ownerId": player["id"]}
+    
+    if evaluate_condition(cond, leader_card, item):
+        # 条件成立→付与
+        print(f"    Condition met, applying effect: {effect}")
+        apply_passive_effect(effect, player, item, events)
+    else:
+        # 条件不成立→解除
+        print(f"    Condition not met, clearing effect: {effect}")
+        clear_passive_from_targets(effect, player, item, events)
+
+
+def _convert_to_battle_buff(action):
+    """
+    アクションをbattle_buffアクションに変換する。
+    パッシブ効果での状態変更をbattle_buff経由で処理するため。
+    """
+    action_type = action.get("type", "")
+    
+    # オーラ系アクションをbattle_buffに変換
+    if action_type in ["PowerAura", "DamageAura", "KeywordAura"]:
+        keyword_mapping = {
+            "PowerAura": "Power",
+            "DamageAura": "Damage",
+            "KeywordAura": action.get("keyword", "Power")
+        }
+        
+        return {
+            "type": "BattleBuff",
+            "target": action.get("target", "Self"),
+            "keyword": keyword_mapping.get(action_type, action.get("keyword", "Power")),
+            "value": action.get("value", 0),
+            "duration": action.get("duration", -1)  # パッシブ効果は基本的に永続
+        }
+    
+    # 既にbattle_buffの場合はそのまま
+    if action_type == "BattleBuff":
+        return action
+    
+    # その他のアクションはそのまま（移動系など）
+    return action
+
+
+def _get_target_zones_from_action(action):
+    """
+    アクションの target 設定から対象となるゾーンを取得する。
+    """
+    target = action.get("target", "")
+    if "Field" in target:
+        return ["Field"]
+    elif "Environment" in target:
+        return ["Environment"]
+    elif "Counter" in target:
+        return ["Counter"]
+    elif "Hand" in target:
+        return ["Hand"]
+    elif "Graveyard" in target:
+        return ["Graveyard"]
+    elif "ExileZone" in target:
+        return ["ExileZone"]
+    elif "DamageZone" in target:
+        return ["DamageZone"]
+    elif "Deck" in target:
+        return ["Deck"]
+    else:
+        return ["Unknown"]
 
 
 def apply_passive_effect(eff, player, item, events):
+    """
+    パッシブ効果を対象カードに適用する。
+    拡張されたゾーンフィルタリングに対応。
+    状態変更はbattle_buff経由で処理。
+    """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
+    
     for act in eff.get("actions", []):
-        # 対象カード取得
+        # 対象カード取得（拡張されたゾーン対応）
         targets = resolve_targets(dummy, act, item)
-        # ログ
+        target_zones = _get_target_zones_from_action(act)
+        
+        print(f"      Applying passive effect to {len(targets)} targets in zones: {target_zones}")
+        print(f"      Target IDs: {[t['id'] for t in targets]}")
+        
+        # アビリティ発動ログ
         events.append({
             "type": "AbilityActivated",
-            "payload": {"sourceCardId": dummy["id"], "trigger": eff.get("trigger", "Passive")}
+            "payload": {
+                "sourceCardId": dummy["id"], 
+                "trigger": eff.get("trigger", "Passive"),
+                "targetZones": target_zones,
+                "targetCount": len(targets)
+            }
         })
+        
+        # アクションをbattle_buffに変換して実行
+        battle_buff_action = _convert_to_battle_buff(act)
+        
         # 実際に付与
         for tgt in targets:
-            events.extend(apply_action(tgt, act, item, player["id"]))
+            events.extend(apply_action(tgt, battle_buff_action, item, player["id"]))
 
 
 def clear_passive_from_targets(eff, player, item, events):
     """
-    以前に付与したパッシブオーラを外す。
-    eff: passiveEffects の M っぽい dict
-    player: players リストの要素 (M っぽい dict)
+    以前に付与したパッシブ効果を外す。
+    拡張されたゾーンフィルタリングに対応。
+    battle_buff経由で適用された効果をクリア。
     """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
+    
     for act in eff.get("actions", []):
-        k = act.get("keyword") or act["type"].replace("Aura","")
+        # アクションをbattle_buffに変換してキーワードを取得
+        battle_buff_action = _convert_to_battle_buff(act)
+        k = battle_buff_action.get("keyword", "Power")
         k_mapped = keyword_map(k)
-        dur = int(act.get("duration", -1))
-        # 対象カード
+        dur = int(battle_buff_action.get("duration", -1))
+        
+        # 対象カード取得（拡張されたゾーン対応）
         targets = resolve_targets(dummy, act, item)
+        target_zones = _get_target_zones_from_action(act)
+        
+        print(f"      Clearing passive effect from {len(targets)} targets in zones: {target_zones}")
+        print(f"      Target IDs: {[t['id'] for t in targets]}")
 
         for tgt in targets:
             # 一時ステータスをクリア
-            before = len(tgt.get("tempStatuses", []))
-            tgt["tempStatuses"] = [
-                s for s in tgt.get("tempStatuses", [])
-                if not (s["key"] == k_mapped and s["sourceId"] == dummy["id"])
-            ]
-            if len(tgt.get("tempStatuses", [])) < before:
-                events.append({
-                    "type": "BattleBuffRemoved",
-                    "payload": {
-                        "cardId": tgt["id"],
-                        "keyword": k,
-                        "sourceCardId": dummy["id"]
-                    }
-                })
-
+            _clear_temp_statuses(tgt, k_mapped, dummy["id"], k, events)
+            
             # 恒常ステータス（dur == -1）もクリア
             if dur == -1:
-                before = len(tgt.get("statuses", []))
-                tgt["statuses"] = [
-                    v for v in tgt.get("statuses", [])
-                    if not (v["key"] == k_mapped and v.get("sourceId") == dummy["id"])
-                ]
-                if len(tgt.get("statuses", [])) < before:
-                    events.append({
-                        "type": "StatusRemoved",
-                        "payload": {
-                            "cardId": tgt["id"],
-                            "keyword": k,
-                            "sourceCardId": dummy["id"]
-                        }
-                    })
+                _clear_permanent_statuses(tgt, k_mapped, dummy["id"], k, events)
+
+
+def _clear_temp_statuses(target, keyword_mapped, source_id, keyword, events):
+    """
+    対象カードから一時ステータスを削除する。
+    """
+    before = len(target.get("tempStatuses", []))
+    target["tempStatuses"] = [
+        s for s in target.get("tempStatuses", [])
+        if not (s["key"] == keyword_mapped and s["sourceId"] == source_id)
+    ]
+    if len(target.get("tempStatuses", [])) < before:
+        events.append({
+            "type": "BattleBuffRemoved",
+            "payload": {
+                "cardId": target["id"],
+                "keyword": keyword,
+                "sourceCardId": source_id
+            }
+        })
+
+
+def _clear_permanent_statuses(target, keyword_mapped, source_id, keyword, events):
+    """
+    対象カードから恒常ステータスを削除する。
+    """
+    before = len(target.get("statuses", []))
+    target["statuses"] = [
+        v for v in target.get("statuses", [])
+        if not (v["key"] == keyword_mapped and v.get("sourceId") == source_id)
+    ]
+    if len(target.get("statuses", [])) < before:
+        events.append({
+            "type": "StatusRemoved",
+            "payload": {
+                "cardId": target["id"],
+                "keyword": keyword,
+                "sourceCardId": source_id
+            }
+        })
 
 # ---------- Phase helper -------------------------------------
 
