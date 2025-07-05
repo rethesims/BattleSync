@@ -345,7 +345,7 @@ def apply_passive_effect(eff, player, item, events):
     """
     パッシブ効果を対象カードに適用する。
     拡張されたゾーンフィルタリングに対応。
-    状態変更はbattle_buff経由で処理。
+    PowerAura/DamageAuraは直接ハンドラを使用してtempStatusesにセット。
     """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
     
@@ -368,28 +368,40 @@ def apply_passive_effect(eff, player, item, events):
             }
         })
         
-        # アクションをbattle_buffに変換して実行
-        battle_buff_action = _convert_to_battle_buff(act)
-        
-        # 実際に付与
-        for tgt in targets:
-            events.extend(apply_action(tgt, battle_buff_action, item, player["id"]))
+        # PowerAura/DamageAuraの場合は直接ハンドラを使用
+        if act.get("type") in ["PowerAura", "DamageAura"]:
+            # 直接アクションハンドラを呼び出し
+            events.extend(apply_action(dummy, act, item, player["id"]))
+        else:
+            # その他のアクションはbattle_buffに変換して実行
+            battle_buff_action = _convert_to_battle_buff(act)
+            
+            # 実際に付与
+            for tgt in targets:
+                events.extend(apply_action(tgt, battle_buff_action, item, player["id"]))
 
 
 def clear_passive_from_targets(eff, player, item, events):
     """
     以前に付与したパッシブ効果を外す。
     拡張されたゾーンフィルタリングに対応。
-    battle_buff経由で適用された効果をクリア。
+    PowerAura/DamageAuraは直接ハンドラで適用された効果をクリア。
     """
     dummy = {"id": player["leaderId"], "ownerId": player["id"]}
     
     for act in eff.get("actions", []):
-        # アクションをbattle_buffに変換してキーワードを取得
-        battle_buff_action = _convert_to_battle_buff(act)
-        k = battle_buff_action.get("keyword", "Power")
-        k_mapped = keyword_map(k)
-        dur = int(battle_buff_action.get("duration", -1))
+        # PowerAura/DamageAuraの場合は直接キーワードを取得
+        if act.get("type") == "PowerAura":
+            k = "Power"
+            k_mapped = keyword_map(k)  # TempPowerBoost
+        elif act.get("type") == "DamageAura":
+            k = "Damage"
+            k_mapped = keyword_map(k)  # TempDamageBoost
+        else:
+            # その他のアクションはbattle_buffに変換してキーワードを取得
+            battle_buff_action = _convert_to_battle_buff(act)
+            k = battle_buff_action.get("keyword", "Power")
+            k_mapped = keyword_map(k)
         
         # 対象カード取得（拡張されたゾーン対応）
         targets = resolve_targets(dummy, act, item)
@@ -399,12 +411,8 @@ def clear_passive_from_targets(eff, player, item, events):
         print(f"      Target IDs: {[t['id'] for t in targets]}")
 
         for tgt in targets:
-            # 一時ステータスをクリア
+            # PowerAura/DamageAuraは一時ステータスをクリア（expire_turn=-1で永続だが、tempStatusesに入っている）
             _clear_temp_statuses(tgt, k_mapped, dummy["id"], k, events)
-            
-            # 恒常ステータス（dur == -1）もクリア
-            if dur == -1:
-                _clear_permanent_statuses(tgt, k_mapped, dummy["id"], k, events)
 
 
 def _clear_temp_statuses(target, keyword_mapped, source_id, keyword, events):
