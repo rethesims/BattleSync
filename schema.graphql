@@ -125,7 +125,7 @@ type Mutation {
   #  Status / effect updates
   updateCardStatus(cardId: ID!, key: String!, matchId: ID!, value: String!): Match
   updateCardStatuses(matchId: ID!, updates: [CardStatusInput!]!): BatchUpdateResult!
-  updateLevelPoints(isPlayer: Boolean!, json: String!, matchId: ID!): Match!
+  updateLevelPoints(isPlayer: Boolean!, json: String!, playerId: ID!, matchId: ID!): Match!
   updatePhase(matchId: ID!, phase: String!): Match
 }
 
