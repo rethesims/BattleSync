@@ -572,11 +572,33 @@ def lambda_handler(event, context):
     if field=="publishClientUpdate":
         return {**args, "timestamp": now_iso()}
 
-    # マッチ読み込み
-    mid=args.get("matchId") or args.get("id")
-    if not mid: raise Exception("need matchId/id")
-    item=table.get_item(Key={"pk":mid,"sk":"STATE"}).get("Item")
-    if not item: raise Exception("match not found")
+    # マッチ読み込み - 安全な処理
+    mid = args.get("matchId") or args.get("id")
+    if not mid:
+        # マッチIDがない場合は適切なエラーレスポンスを返す
+        return {
+            "match": None,
+            "events": [{
+                "type": "MissingMatchId",
+                "payload": {
+                    "message": "マッチIDが必要です"
+                }
+            }]
+        }
+    
+    item = table.get_item(Key={"pk": mid, "sk": "STATE"}).get("Item")
+    if not item:
+        # マッチが見つからない場合は適切なエラーレスポンスを返す
+        return {
+            "match": None,
+            "events": [{
+                "type": "MatchNotFound",
+                "payload": {
+                    "matchId": mid,
+                    "message": "指定されたマッチが見つかりません"
+                }
+            }]
+        }
 
     # -------- getMatch ----------------------------------------
     if field == "getMatch":
@@ -612,10 +634,33 @@ def lambda_handler(event, context):
     # -------- summonCard --------------------------------------
     if field=="summonCard":
         print(f"SummonCard: {args}")
-        cid=args["cardId"]
-        card=next((c for c in item["cards"] if c["id"]==cid),None)
-        if not card: raise Exception("card not found")
-        if card["zone"]=="Field": raise Exception("already on field")
+        cid = args.get("cardId")
+        if not cid:
+            # カードIDがない場合は何もしない
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": []}
+        
+        card = next((c for c in item["cards"] if c["id"]==cid), None)
+        if not card:
+            # カードが見つからない場合はエラーイベントを返す
+            error_event = {
+                "type": "CardNotFound",
+                "payload": {
+                    "cardId": cid,
+                    "message": "指定されたカードが見つかりません"
+                }
+            }
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
+        
+        if card["zone"] == "Field":
+            # 既にフィールドにある場合はエラーイベントを返す
+            error_event = {
+                "type": "AlreadyOnField",
+                "payload": {
+                    "cardId": cid,
+                    "message": "カードは既にフィールドに存在します"
+                }
+            }
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
         detach_auras(card,item["cards"])
         card["zone"]="Field"
         trig=[{"type":"OnSummon","payload":{"cardId":cid}},
@@ -699,19 +744,39 @@ def lambda_handler(event, context):
     
     # --- declareAttack -----------------------------------
     if field == "declareAttack":
-        cid_a = args["attackerId"]
+        cid_a = args.get("attackerId")
         cid_t = args.get("targetId")
-        is_leader = args["targetIsLeader"]
+        is_leader = args.get("targetIsLeader", False)
 
-        # 1) フィールドチェック
+        # 1) フィールドチェック - 安全な処理
+        if not cid_a:
+            # 攻撃者IDがない場合は何もしない
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": []}
+        
         attacker = find_card(item, cid_a)
         if not attacker or attacker["zone"] != "Field":
-            raise Exception("invalid attacker")
+            # 攻撃者が無効な場合はエラーイベントを返す
+            error_event = {
+                "type": "InvalidAttacker",
+                "payload": {
+                    "attackerId": cid_a,
+                    "message": "攻撃者が無効です（存在しないかフィールドにいません）"
+                }
+            }
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
 
         if not is_leader:
             target = find_card(item, cid_t)
             if not target or target["zone"] != "Field":
-                raise Exception("invalid target")
+                # ターゲットが無効な場合はエラーイベントを返す
+                error_event = {
+                    "type": "InvalidTarget",
+                    "payload": {
+                        "targetId": cid_t,
+                        "message": "ターゲットが無効です（存在しないかフィールドにいません）"
+                    }
+                }
+                return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
         else:
             target = None
 
@@ -783,13 +848,30 @@ def lambda_handler(event, context):
     if field == "setBlocker":
         bid = args.get("blockerId")      # None = ノーブロック
         pb  = item.get("pendingBattle") or {}
+        
+        # バトルステップの安全な確認
         if item.get("battleStep") != "BlockChoice":
-            raise Exception("Not in BlockChoice")
+            error_event = {
+                "type": "InvalidBattleStep",
+                "payload": {
+                    "currentStep": item.get("battleStep"),
+                    "message": "ブロック選択段階ではありません"
+                }
+            }
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
 
         if bid:
             blk = find_card(item, bid)
-            if not blk or blk["ownerId"] == pb["attackerOwnerId"]:
-                raise Exception("invalid blocker")
+            if not blk or blk["ownerId"] == pb.get("attackerOwnerId"):
+                # 無効なブロッカーの場合はエラーイベントを返す
+                error_event = {
+                    "type": "InvalidBlocker",
+                    "payload": {
+                        "blockerId": bid,
+                        "message": "無効なブロッカーです（存在しないか攻撃者と同じプレイヤーです）"
+                    }
+                }
+                return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
         pb["blockerId"] = bid
         item["pendingBattle"] = pb
         item["battleStep"]    = "AttackAbility"
@@ -806,7 +888,14 @@ def lambda_handler(event, context):
     if field == "resolveBattle":
         # AttackAbility → Resolve をクライアントが要求
         if item.get("battleStep") != "AttackAbility":
-            raise Exception("Not in AttackAbility")
+            error_event = {
+                "type": "InvalidBattleStep",
+                "payload": {
+                    "currentStep": item.get("battleStep"),
+                    "message": "アビリティ発動段階ではありません"
+                }
+            }
+            return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
 
         events = []
         resolve_battle(item, events)      # Destroy / Damage を積む
@@ -879,5 +968,14 @@ def lambda_handler(event, context):
                 "turnPlayerId": item.get("turnPlayerId"),
                 "updatedAt": item["updatedAt"]}
 
-    # 未サポート
-    raise Exception(f"Unsupported field: {field}")
+    # 未サポート - 安全な処理
+    return {
+        "match": json.loads(json.dumps(item, cls=DecimalEncoder)),
+        "events": [{
+            "type": "UnsupportedField",
+            "payload": {
+                "field": field,
+                "message": f"サポートされていないフィールドです: {field}"
+            }
+        }]
+    }
