@@ -602,8 +602,10 @@ def lambda_handler(event, context):
 
         evs=resolve(trig,item)
         
-        item["updatedAt"]=now_iso(); bump(item); table.put_item(Item=item)
+        item["updatedAt"]=now_iso()
+        bump(item)
         refresh_passive_auras(item, evs)
+        table.put_item(Item=item)
         return {"match":json.loads(json.dumps(item,cls=DecimalEncoder)),
                 "events":evs}
 
@@ -620,8 +622,10 @@ def lambda_handler(event, context):
               {"type":"OnEnterField","payload":{"cardId":cid}}]
         evs=resolve(trig,item)
         
-        item["updatedAt"]=now_iso(); bump(item); table.put_item(Item=item)
+        item["updatedAt"]=now_iso()
+        bump(item)
         refresh_passive_auras(item, evs)
+        table.put_item(Item=item)
         return {"match":json.loads(json.dumps(item,cls=DecimalEncoder)),
                 "events":evs}
 
