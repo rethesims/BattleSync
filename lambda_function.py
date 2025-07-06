@@ -375,6 +375,8 @@ def apply_passive_effect(eff, player, item, events):
         else:
             # その他のアクションはbattle_buffに変換して実行
             battle_buff_action = _convert_to_battle_buff(act)
+            # パッシブ効果のソースカードIDを追加
+            battle_buff_action["sourceCardId"] = dummy["id"]
             
             # 実際に付与
             for tgt in targets:

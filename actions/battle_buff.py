@@ -20,7 +20,9 @@ def handle(card, act, item, *_):
     else:
         # 一時：tempStatuses（期限付き）
         expire_turn = item.get("turnCount", 0) + dur - 1
-        add_temp_status(card, k_mapped, value, expire_turn)
+        # パッシブ効果の場合、sourceCardIdをアクションから取得
+        source_id = act.get("sourceCardId")
+        add_temp_status(card, k_mapped, value, expire_turn, source_id=source_id)
 
     # Power 以外のキーワードならフラグも立てる
     if keyword != "Power":
