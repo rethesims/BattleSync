@@ -961,14 +961,39 @@ def lambda_handler(event, context):
         return {"success": True, "errorMessage": None}
 
     if field == "updateLevelPoints":
-        item["levelPoints"] = json.loads(args["json"])
-        item["updatedAt"] = now_iso(); bump(item); table.put_item(Item=item)
-        return {"id": item["id"],
-                "matchVersion": item["matchVersion"],
-                "phase": item.get("phase"),
-                "status": item.get("status"),
-                "turnPlayerId": item.get("turnPlayerId"),
-                "updatedAt": item["updatedAt"]}
+        print(f"UpdateLevelPoints: {args}")
+        # ① JSON文字列をパース
+        new_points = json.loads(args["json"])
+        # ② プレイヤー識別用の引数を受け取っている前提（mutation側で playerId を渡すようにしてください）
+        target_player_id = args.get("playerId")
+        if not target_player_id:
+            raise Exception("playerId is required")
+
+        # ③ players リストから該当プレイヤーを探して levelPoints を更新
+        updated = False
+        for player in item["players"]:
+            if player.get("id") == target_player_id:
+                player["levelPoints"] = new_points
+                updated = True
+                break
+
+        if not updated:
+            raise Exception(f"Player {target_player_id} not found in match {item['id']}")
+
+        # ④ updatedAt を更新してテーブルに保存
+        item["updatedAt"] = now_iso()
+        bump(item)
+        table.put_item(Item=item)
+
+        # ⑤ 必要なフィールドだけ返却
+        return {
+            "id": item["id"],
+            "matchVersion": item["matchVersion"],
+            "phase": item.get("phase"),
+            "status": item.get("status"),
+            "turnPlayerId": item.get("turnPlayerId"),
+            "updatedAt": item["updatedAt"]
+        }
 
     # 未サポート - 安全な処理
     return {
