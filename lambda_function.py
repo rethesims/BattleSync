@@ -966,12 +966,15 @@ def lambda_handler(event, context):
         # ① JSON文字列をパース
         raw_points = json.loads(args["json"])  # 例: [{"Color":0,"IsUsed":false}, …]
 
-        # ② 大文字キーを小文字キーに正規化
+        # ② 大文字キーを小文字キーに正規化し、数値インデックスを enum 名に変換
+        enum_names = ["COLORLESS", "RED", "BLUE", "GREEN", "YELLOW", "BLACK"]
         new_points = []
         for p in raw_points:
+            idx = p.get("Color", p.get("color"))
+            name = enum_names[int(idx)]  # idx が文字列なら int() で変換
             new_points.append({
-                "color":   p.get("Color",   p.get("color")),    # Color または既に color
-                "isUsed":  p.get("IsUsed",  p.get("isUsed"))   # IsUsed または既に isUsed
+            "color":  name,                # ← 文字列で書き込む
+            "isUsed": p.get("IsUsed", p.get("isUsed"))
             })
 
         # ③ プレイヤー識別用の引数チェック
