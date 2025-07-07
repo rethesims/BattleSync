@@ -961,34 +961,48 @@ def lambda_handler(event, context):
         return {"success": True, "errorMessage": None}
 
     if field == "updateLevelPoints":
-        # (1) 引数から直接構造体で受け取る
-        new_points    = args["levelPoints"]   # [{'color': 'RED', 'isUsed': False}, …]
-        target_player = args["playerId"]
+        print(f"UpdateLevelPoints: {args}")
 
-        # (2) players 配列の中から対象プレイヤーを探し、
+        # ① JSON文字列をパース
+        raw_points = json.loads(args["json"])  # 例: [{"Color":0,"IsUsed":false}, …]
+
+        # ② 大文字キーを小文字キーに正規化
+        new_points = []
+        for p in raw_points:
+            new_points.append({
+                "color":   p.get("Color",   p.get("color")),    # Color または既に color
+                "isUsed":  p.get("IsUsed",  p.get("isUsed"))   # IsUsed または既に isUsed
+            })
+
+        # ③ プレイヤー識別用の引数チェック
+        target_player_id = args.get("playerId")
+        if not target_player_id:
+            raise Exception("playerId is required")
+
+        # ④ players リストから該当プレイヤーを探して levelPoints を更新
         updated = False
-        for p in item["players"]:
-            if p["id"] == target_player:
-                # DynamoDB にそのまま書き込めるように変換
-                p["levelPoints"] = new_points
+        for player in item["players"]:
+            if player.get("id") == target_player_id:
+                player["levelPoints"] = new_points
                 updated = True
                 break
-        if not updated:
-            raise Exception(f"Player {target_player} not found")
 
-        # (3) タイムスタンプ＆バージョン更新
+        if not updated:
+            raise Exception(f"Player {target_player_id} not found in match {item['id']}")
+
+        # ⑤ updatedAt を更新してテーブルに保存
         item["updatedAt"] = now_iso()
         bump(item)
         table.put_item(Item=item)
 
-        # (4) 必要なフィールドだけ返す
+        # ⑥ 必要なフィールドだけ返却
         return {
-        "id":           item["id"],
-        "matchVersion": item["matchVersion"],
-        "phase":        item.get("phase"),
-        "status":       item.get("status"),
-        "turnPlayerId": item.get("turnPlayerId"),
-        "updatedAt":    item["updatedAt"]
+            "id":           item["id"],
+            "matchVersion": item["matchVersion"],
+            "phase":        item.get("phase"),
+            "status":       item.get("status"),
+            "turnPlayerId": item.get("turnPlayerId"),
+            "updatedAt":    item["updatedAt"]
         }
 
     # 未サポート - 安全な処理
