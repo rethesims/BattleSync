@@ -192,6 +192,42 @@ enum BattleStepMutation {
 }
 
 # ## --- Enums ------------------------------------------------------
+enum ActionType {
+  # Existing actions
+  Draw
+  PowerAura
+  DamageAura
+  KeywordAura
+  BattleBuff
+  Bounce
+  Discard
+  Exile
+  MoveField
+  MoveDeck
+  MoveToDamageZone
+  
+  # New actions
+  Select
+  SelectOption
+  Destroy
+  Summon
+  PayCost
+  GainLevel
+  DestroyLevel
+  AssignColor
+  ActivateCost
+  PlayerStatus
+  SetPlayerStatus
+  Transform
+  CounterChange
+  ApplyDamage
+  CreateToken
+  CallMethod
+  NextSummonBuff
+  CostModifier
+  SetStatus
+}
+
 enum ZoneType {
   Counter
   Damage
