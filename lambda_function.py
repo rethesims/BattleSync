@@ -77,9 +77,9 @@ def handle_trigger(card, trig, item):
     """
     カードのトリガーを処理し、即座に実行すべきアクションとDeferred アクションを分離する。
     
-    イベントシーケンス例:
-    1. OnSummon → Select(deferred=false) → SendChoiceRequest → クライアント応答
-    2. OnChoiceComplete → Destroy(deferred=true) → 実際の破壊処理
+    新しいイベントシーケンス例:
+    1. OnSummon → Select(immediate) → choiceRequests 登録 → クライアント応答
+    2. submitChoiceResponse → pendingDeferred から Destroy 実行
     """
     res = []
     hit = False
@@ -108,48 +108,26 @@ def handle_trigger(card, trig, item):
         
         # 即座に実行すべきアクション
         for a in immediate_actions:
-            res += apply_action(card, a, item, card["ownerId"])
-        
-        # Deferred アクションがある場合は item["deferredActions"] に追加
-        if current_deferred:
-            # selectionKey または sourceKey を取得
-            selection_key = None
-            for a in immediate_actions:
-                if a.get("selectionKey") or a.get("sourceKey"):
-                    selection_key = a.get("selectionKey") or a.get("sourceKey")
-                    break
-            
-            # selection_key が見つからない場合は適切なデフォルト値を使用
-            if not selection_key:
-                selection_key = f"deferred_{card['id']}_{trig}"
-            
-            logger.info(f"    storing {len(current_deferred)} deferred actions for later execution")
-            
-            # deferred アクションを保存
-            for a in current_deferred:
-                deferred_action = dict(a)  # アクションをコピー
-                deferred_action["sourceCardId"] = card["id"]
-                deferred_action["trigger"] = trig
-                deferred_action["selectionKey"] = selection_key
-                item["deferredActions"].append(deferred_action)
-    
-    # deferredActions がある場合は SendChoiceRequest イベントを生成
-    if item.get("deferredActions"):
-        # 最初の deferred action から selectionKey を取得
-        first_deferred = item["deferredActions"][0]
-        selection_key = first_deferred.get("selectionKey")
-        source_card_id = first_deferred.get("sourceCardId")
-        
-        # SendChoiceRequest イベントを先頭に挿入
-        res.insert(0, {
-            "type": "SendChoiceRequest",
-            "payload": {
-                "requestId": selection_key,
-                "playerId": card["ownerId"],
-                "promptText": "選択してください",
-                "options": []  # 選択肢は前の Select アクションで設定される
-            }
-        })
+            # Select アクションの場合は特別処理
+            if a["type"] == "Select":
+                # choiceRequests に登録
+                item.setdefault("choiceRequests", []).append({
+                    "requestId": a["selectionKey"],
+                    "playerId": card["ownerId"],
+                    "promptText": a.get("prompt", ""),
+                    "options": a.get("options", [])
+                })
+                # 後続の deferred アクションを pendingDeferred に保存
+                if current_deferred:
+                    for deferred_a in current_deferred:
+                        deferred_action = dict(deferred_a)
+                        deferred_action["sourceCardId"] = card["id"]
+                        deferred_action["trigger"] = trig
+                        deferred_action["selectionKey"] = a["selectionKey"]
+                        item.setdefault("pendingDeferred", []).append(deferred_action)
+                    logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
+            else:
+                res += apply_action(card, a, item, card["ownerId"])
     
     if hit:
         res.insert(0, {"type": "AbilityActivated", "payload": {"sourceCardId": card["id"], "trigger": trig}})
@@ -160,12 +138,11 @@ def handle_trigger(card, trig, item):
 
 def resolve(initial, item):
     """
-    イベントを解決し、トリガーとOnChoiceCompleteイベントを処理する。
+    イベントを解決し、トリガーイベントを処理する。
     
     処理フロー:
     1. 通常のトリガーイベント（OnSummon、OnEnterFieldなど）
-    2. OnChoiceCompleteイベント -> deferred アクションの実行
-    3. 追加されたイベントの再帰的な処理
+    2. 追加されたイベントの再帰的な処理
     """
     evs = list(initial)
     i = 0
@@ -173,67 +150,16 @@ def resolve(initial, item):
         event_type = evs[i]["type"]
         pld = _payload_to_dict(evs[i]["payload"])
         
-        # OnChoiceCompleteイベントの処理
-        if event_type == "OnChoiceComplete":
-            logger.info(f"resolve: processing OnChoiceComplete event")
-            
-            # item["deferredActions"] から deferred アクションを取得して実行
-            deferred_actions = item.get("deferredActions", [])
-            if deferred_actions:
-                logger.info(f"  processing {len(deferred_actions)} deferred actions")
-                
-                for action in deferred_actions:
-                    source_card_id = action.get("sourceCardId")
-                    selection_key = action.get("selectionKey")
-                    
-                    # ソースカードを取得
-                    source_card = next((c for c in item["cards"] if c["id"] == source_card_id), None)
-                    if source_card:
-                        logger.info(f"    executing deferred action: {action}")
-                        
-                        # selectionKey を action に追加（必要に応じて）
-                        if selection_key and not action.get("selectionKey") and not action.get("sourceKey"):
-                            action["selectionKey"] = selection_key
-                        
-                        # アクションを実行
-                        new_events = apply_action(source_card, action, item, source_card["ownerId"])
-                        evs.extend(new_events)
-                        logger.info(f"      -> generated {len(new_events)} new events")
-                        
-                        # 使用済みの choiceResponse をクリア
-                        if selection_key:
-                            _cleanup_used_choice_response(item, selection_key)
-                    else:
-                        logger.warning(f"    source card {source_card_id} not found for deferred action")
-                
-                # 実行後、deferredActions をクリア
-                item["deferredActions"] = []
-                logger.info(f"  cleared deferredActions after execution")
-        
-        # 通常のトリガーイベントの処理
-        else:
-            cid = pld.get("cardId")
-            card = next((c for c in item["cards"] if c["id"] == cid), None)
-            if card:
-                evs += handle_trigger(card, event_type, item)
+        # トリガーイベントの処理
+        cid = pld.get("cardId")
+        card = next((c for c in item["cards"] if c["id"] == cid), None)
+        if card:
+            evs += handle_trigger(card, event_type, item)
         
         i += 1
     return evs
 
 
-def _cleanup_used_choice_response(item, selection_key):
-    """
-    使用済みの choiceResponse を削除してメモリリークを防ぐ
-    """
-    if "choiceResponses" in item:
-        original_count = len(item["choiceResponses"])
-        item["choiceResponses"] = [
-            r for r in item["choiceResponses"] 
-            if r.get("requestId") != selection_key
-        ]
-        cleaned_count = original_count - len(item["choiceResponses"])
-        if cleaned_count > 0:
-            logger.info(f"  cleaned up {cleaned_count} choice response(s) for key: {selection_key}")
 
 def apply_action(card, act, item, owner_id):
     handler = get_handler(act["type"])
@@ -734,8 +660,8 @@ def lambda_handler(event, context):
             }]
         }
     
-    # deferredActions の初期化
-    item.setdefault("deferredActions", [])
+    # pendingDeferred の初期化
+    item.setdefault("pendingDeferred", [])
 
     # -------- getMatch ----------------------------------------
     if field == "getMatch":
@@ -1088,9 +1014,42 @@ def lambda_handler(event, context):
 
     if field == "submitChoiceResponse":
         body = json.loads(args["json"])
+        req_id   = body["requestId"]
+        player_id = body["playerId"]
+        events = []
+
+        # ① choiceResponses に登録
         item.setdefault("choiceResponses", []).append(body)
+
+        # ② pendingDeferred を走査 → マッチする Destroy 等を実行
+        new_pending = []
+        for act in item.get("pendingDeferred", []):
+            if act["selectionKey"] == req_id:
+                handler = get_handler(act["type"])
+                if handler:
+                    # ソースカードを取得
+                    source_card = next((c for c in item["cards"] if c["id"] == act["sourceCardId"]), None)
+                    if source_card:
+                        targets = resolve_targets(source_card, act, item)
+                        for tgt in targets:
+                            events += handler(tgt, act, item, player_id)
+                    else:
+                        logger.warning(f"Source card {act['sourceCardId']} not found")
+                else:
+                    logger.warning(f"Handler not found for action type: {act['type']}")
+            else:
+                new_pending.append(act)
+        item["pendingDeferred"] = new_pending
+
+        # ③ choiceRequests / choiceResponses をクリーンアップ
+        item["choiceRequests"]  = [r for r in item.get("choiceRequests", [])
+                                   if r["requestId"] != req_id]
+        item["choiceResponses"] = [r for r in item.get("choiceResponses", [])
+                                   if r["requestId"] != req_id]
+
+        # ④ 永続化して返却
         item["updatedAt"] = now_iso(); bump(item); table.put_item(Item=item)
-        return json.loads(json.dumps(item, cls=DecimalEncoder))
+        return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": events}
 
     if field == "updateCardStatuses":
         for upd in args.get("updates", []):
