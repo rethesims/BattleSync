@@ -55,6 +55,17 @@ TARGET_ZONES = [
     "DamageZone"
 ]
 
+# ---------------- choice response cleanup ----------------
+def cleanup_used_choice_response(item: Dict[str, Any], request_id: str) -> None:
+    """
+    使用済みのchoiceResponseを削除してメモリリークや二重適用を防ぐ
+    """
+    if "choiceResponses" in item:
+        item["choiceResponses"] = [
+            r for r in item["choiceResponses"] 
+            if r.get("requestId") != request_id
+        ]
+
 # ---------------- target resolution ----------------
 def resolve_targets(src: Dict[str, Any], action: Dict[str, Any], item: Dict[str, Any]) -> List[Dict]:
     # 1) selectionKey 優先
@@ -65,7 +76,10 @@ def resolve_targets(src: Dict[str, Any], action: Dict[str, Any], item: Dict[str,
         # 例: {'requestId': sel_key, 'selectedIds': ['c1','c2',...]}
         resp = next((r for r in responses if r.get("requestId") == sel_key), None)
         if resp and resp.get("selectedIds"):
-            return [c for c in item["cards"] if c["id"] in resp["selectedIds"]]
+            targets = [c for c in item["cards"] if c["id"] in resp["selectedIds"]]
+            # 使用済みのchoiceResponseをクリア
+            cleanup_used_choice_response(item, sel_key)
+            return targets
 
     if action["type"] == "Draw":
         return [src]
