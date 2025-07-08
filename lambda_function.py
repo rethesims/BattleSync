@@ -83,7 +83,6 @@ def handle_trigger(card, trig, item):
     """
     res = []
     hit = False
-    deferred_actions = []
     logger.info(f"handle_trigger: card={card['id']} trigger={trig}")
     
     for eff in card.get("effectList", []):
@@ -111,9 +110,9 @@ def handle_trigger(card, trig, item):
         for a in immediate_actions:
             res += apply_action(card, a, item, card["ownerId"])
         
-        # Deferred アクションがある場合は OnChoiceComplete イベントを生成
+        # Deferred アクションがある場合は item["deferredActions"] に追加
         if current_deferred:
-            # selectionKey または sourceKey を取得（最初のアクションから）
+            # selectionKey または sourceKey を取得
             selection_key = None
             for a in immediate_actions:
                 if a.get("selectionKey") or a.get("sourceKey"):
@@ -124,16 +123,33 @@ def handle_trigger(card, trig, item):
             if not selection_key:
                 selection_key = f"deferred_{card['id']}_{trig}"
             
-            logger.info(f"    creating OnChoiceComplete for {len(current_deferred)} deferred actions")
-            res.append({
-                "type": "OnChoiceComplete",
-                "payload": {
-                    "selectionKey": selection_key,
-                    "deferredActions": current_deferred,
-                    "sourceCardId": card["id"],
-                    "trigger": trig
-                }
-            })
+            logger.info(f"    storing {len(current_deferred)} deferred actions for later execution")
+            
+            # deferred アクションを保存
+            for a in current_deferred:
+                deferred_action = dict(a)  # アクションをコピー
+                deferred_action["sourceCardId"] = card["id"]
+                deferred_action["trigger"] = trig
+                deferred_action["selectionKey"] = selection_key
+                item["deferredActions"].append(deferred_action)
+    
+    # deferredActions がある場合は SendChoiceRequest イベントを生成
+    if item.get("deferredActions"):
+        # 最初の deferred action から selectionKey を取得
+        first_deferred = item["deferredActions"][0]
+        selection_key = first_deferred.get("selectionKey")
+        source_card_id = first_deferred.get("sourceCardId")
+        
+        # SendChoiceRequest イベントを先頭に挿入
+        res.insert(0, {
+            "type": "SendChoiceRequest",
+            "payload": {
+                "requestId": selection_key,
+                "playerId": card["ownerId"],
+                "promptText": "選択してください",
+                "options": []  # 選択肢は前の Select アクションで設定される
+            }
+        })
     
     if hit:
         res.insert(0, {"type": "AbilityActivated", "payload": {"sourceCardId": card["id"], "trigger": trig}})
@@ -161,30 +177,38 @@ def resolve(initial, item):
         if event_type == "OnChoiceComplete":
             logger.info(f"resolve: processing OnChoiceComplete event")
             
-            # deferred アクションを取得
-            deferred_actions = pld.get("deferredActions", [])
-            source_card_id = pld.get("sourceCardId")
-            selection_key = pld.get("selectionKey")
-            
-            # ソースカードを取得
-            source_card = next((c for c in item["cards"] if c["id"] == source_card_id), None)
-            if source_card:
-                logger.info(f"  processing {len(deferred_actions)} deferred actions for card {source_card_id}")
+            # item["deferredActions"] から deferred アクションを取得して実行
+            deferred_actions = item.get("deferredActions", [])
+            if deferred_actions:
+                logger.info(f"  processing {len(deferred_actions)} deferred actions")
                 
-                # 各deferred アクションを実行
                 for action in deferred_actions:
-                    logger.info(f"    executing deferred action: {action}")
+                    source_card_id = action.get("sourceCardId")
+                    selection_key = action.get("selectionKey")
                     
-                    # selectionKey を action に追加（必要に応じて）
-                    if selection_key and not action.get("selectionKey") and not action.get("sourceKey"):
-                        action["selectionKey"] = selection_key
-                    
-                    # アクションを実行
-                    new_events = apply_action(source_card, action, item, source_card["ownerId"])
-                    evs.extend(new_events)
-                    logger.info(f"      -> generated {len(new_events)} new events")
-            else:
-                logger.warning(f"  source card {source_card_id} not found for OnChoiceComplete")
+                    # ソースカードを取得
+                    source_card = next((c for c in item["cards"] if c["id"] == source_card_id), None)
+                    if source_card:
+                        logger.info(f"    executing deferred action: {action}")
+                        
+                        # selectionKey を action に追加（必要に応じて）
+                        if selection_key and not action.get("selectionKey") and not action.get("sourceKey"):
+                            action["selectionKey"] = selection_key
+                        
+                        # アクションを実行
+                        new_events = apply_action(source_card, action, item, source_card["ownerId"])
+                        evs.extend(new_events)
+                        logger.info(f"      -> generated {len(new_events)} new events")
+                        
+                        # 使用済みの choiceResponse をクリア
+                        if selection_key:
+                            _cleanup_used_choice_response(item, selection_key)
+                    else:
+                        logger.warning(f"    source card {source_card_id} not found for deferred action")
+                
+                # 実行後、deferredActions をクリア
+                item["deferredActions"] = []
+                logger.info(f"  cleared deferredActions after execution")
         
         # 通常のトリガーイベントの処理
         else:
@@ -195,6 +219,21 @@ def resolve(initial, item):
         
         i += 1
     return evs
+
+
+def _cleanup_used_choice_response(item, selection_key):
+    """
+    使用済みの choiceResponse を削除してメモリリークを防ぐ
+    """
+    if "choiceResponses" in item:
+        original_count = len(item["choiceResponses"])
+        item["choiceResponses"] = [
+            r for r in item["choiceResponses"] 
+            if r.get("requestId") != selection_key
+        ]
+        cleaned_count = original_count - len(item["choiceResponses"])
+        if cleaned_count > 0:
+            logger.info(f"  cleaned up {cleaned_count} choice response(s) for key: {selection_key}")
 
 def apply_action(card, act, item, owner_id):
     handler = get_handler(act["type"])
@@ -694,6 +733,9 @@ def lambda_handler(event, context):
                 }
             }]
         }
+    
+    # deferredActions の初期化
+    item.setdefault("deferredActions", [])
 
     # -------- getMatch ----------------------------------------
     if field == "getMatch":
