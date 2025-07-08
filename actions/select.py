@@ -33,13 +33,15 @@ def handle_select(card, act, item, owner_id):
     # 実際の選択数を制限
     available_count = min(len(targets), max_select)
     
-    # 選択イベントを生成
+    # SendChoiceRequest イベントを生成してクライアントに選択肢を提示
     return [{
-        "type": "Select",
+        "type": "SendChoiceRequest",
         "payload": {
-            "selectionKey": act.get("selectionKey", "default"),
-            "availableIds": [t["id"] for t in targets],
+            "requestId": act.get("selectionKey", "default"),
+            "playerId": owner_id,
+            "promptText": act.get("prompt", f"カードを選択してください（最大{available_count}枚）"),
+            "options": [t["id"] for t in targets],
             "maxSelect": available_count,
-            "prompt": act.get("prompt", f"カードを選択してください（最大{available_count}枚）")
+            "mode": mode
         }
     }]
