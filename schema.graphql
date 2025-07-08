@@ -65,6 +65,12 @@ type ClientUpdate {
   updateType: String!
 }
 
+#  個々のポイント（色＋使用フラグ）
+type LevelPoint {
+  color: LevelColor!
+  isUsed: Boolean!
+}
+
 # ## --- Match ------------------------------------------------------
 type Match {
   battleReady: [ID!]!
@@ -125,13 +131,13 @@ type Mutation {
   #  Status / effect updates
   updateCardStatus(cardId: ID!, key: String!, matchId: ID!, value: String!): Match
   updateCardStatuses(matchId: ID!, updates: [CardStatusInput!]!): BatchUpdateResult!
-  updateLevelPoints(isPlayer: Boolean!, json: String!, playerId: ID!, matchId: ID!): Match!
+  updateLevelPoints(isPlayer: Boolean!, json: String!, matchId: ID!, playerId: ID!): Match!
   updatePhase(matchId: ID!, phase: String!): Match
 }
 
 # ## --- Battle-state objects --------------------------------------
 type PendingBattle {
-  attackerId: ID!
+  attackerId: ID
   #  null ならリーダー
   blockerId: ID
   isLeader: Boolean!
@@ -148,6 +154,7 @@ type Player {
   deckJson: String
   id: ID!
   isReady: Boolean!
+  levelPoints: [LevelPoint]!
   name: String!
 }
 
@@ -191,43 +198,17 @@ enum BattleStepMutation {
   resolveBattle
 }
 
-# ## --- Enums ------------------------------------------------------
-enum ActionType {
-  # Existing actions
-  Draw
-  PowerAura
-  DamageAura
-  KeywordAura
-  BattleBuff
-  Bounce
-  Discard
-  Exile
-  MoveField
-  MoveDeck
-  MoveToDamageZone
-  
-  # New actions
-  Select
-  SelectOption
-  Destroy
-  Summon
-  PayCost
-  GainLevel
-  DestroyLevel
-  AssignColor
-  ActivateCost
-  PlayerStatus
-  SetPlayerStatus
-  Transform
-  CounterChange
-  ApplyDamage
-  CreateToken
-  CallMethod
-  NextSummonBuff
-  CostModifier
-  SetStatus
+#  レベルの色を表す列挙型
+enum LevelColor {
+  BLACK
+  BLUE
+  COLORLESS
+  GREEN
+  RED
+  YELLOW
 }
 
+# ## --- Enums ------------------------------------------------------
 enum ZoneType {
   Counter
   Damage

@@ -710,6 +710,12 @@ def lambda_handler(event, context):
         if new == "Start":
             refresh_passive_auras(item, events)
 
+            # ターンプレイヤーに {"color": "COLORLESS", "isUsed": False} を追加し、isUsed をすべて False に設定
+            turn_player = next(p for p in item["players"] if p["id"] == item["turnPlayerId"])
+            turn_player.setdefault("levelPoints", []).append({"color": "COLORLESS", "isUsed": False})
+            for point in turn_player["levelPoints"]:
+                point["isUsed"] = False
+
         # Draw フェーズを即処理して Main へ
         if new == "Draw":
             if item.get("turnCount", 0) == 0 or not do_draw(item, item["turnPlayerId"]):
