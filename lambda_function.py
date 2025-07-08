@@ -74,32 +74,125 @@ def _payload_to_dict(pld):
 
 
 def handle_trigger(card, trig, item):
+    """
+    カードのトリガーを処理し、即座に実行すべきアクションとDeferred アクションを分離する。
+    
+    イベントシーケンス例:
+    1. OnSummon → Select(deferred=false) → SendChoiceRequest → クライアント応答
+    2. OnChoiceComplete → Destroy(deferred=true) → 実際の破壊処理
+    """
     res = []
     hit = False
+    deferred_actions = []
     logger.info(f"handle_trigger: card={card['id']} trigger={trig}")
+    
     for eff in card.get("effectList", []):
         if eff.get("trigger") != trig:
             continue
         logger.info(f"  matched effect: {eff}")
         hit = True
+        
+        # アクションをdeferred フラグで分離
+        immediate_actions = []
+        current_deferred = []
+        
         for a in eff.get("actions", []):
-            logger.info(f"    invoking action: {a}")
+            logger.info(f"    processing action: {a}")
+            
+            # deferred フラグをチェック（デフォルトは false）
+            if a.get("deferred", False):
+                logger.info(f"      -> deferred action: {a}")
+                current_deferred.append(a)
+            else:
+                logger.info(f"      -> immediate action: {a}")
+                immediate_actions.append(a)
+        
+        # 即座に実行すべきアクション
+        for a in immediate_actions:
             res += apply_action(card, a, item, card["ownerId"])
+        
+        # Deferred アクションがある場合は OnChoiceComplete イベントを生成
+        if current_deferred:
+            # selectionKey または sourceKey を取得（最初のアクションから）
+            selection_key = None
+            for a in immediate_actions:
+                if a.get("selectionKey") or a.get("sourceKey"):
+                    selection_key = a.get("selectionKey") or a.get("sourceKey")
+                    break
+            
+            # selection_key が見つからない場合は適切なデフォルト値を使用
+            if not selection_key:
+                selection_key = f"deferred_{card['id']}_{trig}"
+            
+            logger.info(f"    creating OnChoiceComplete for {len(current_deferred)} deferred actions")
+            res.append({
+                "type": "OnChoiceComplete",
+                "payload": {
+                    "selectionKey": selection_key,
+                    "deferredActions": current_deferred,
+                    "sourceCardId": card["id"],
+                    "trigger": trig
+                }
+            })
+    
     if hit:
         res.insert(0, {"type": "AbilityActivated", "payload": {"sourceCardId": card["id"], "trigger": trig}})
         logger.info(f"  inserted AbilityActivated for {card['id']}")
+    
     return res
 
 
 def resolve(initial, item):
+    """
+    イベントを解決し、トリガーとOnChoiceCompleteイベントを処理する。
+    
+    処理フロー:
+    1. 通常のトリガーイベント（OnSummon、OnEnterFieldなど）
+    2. OnChoiceCompleteイベント -> deferred アクションの実行
+    3. 追加されたイベントの再帰的な処理
+    """
     evs = list(initial)
     i = 0
     while i < len(evs):
+        event_type = evs[i]["type"]
         pld = _payload_to_dict(evs[i]["payload"])
-        cid = pld.get("cardId")
-        card = next((c for c in item["cards"] if c["id"] == cid), None)
-        if card:
-            evs += handle_trigger(card, evs[i]["type"], item)
+        
+        # OnChoiceCompleteイベントの処理
+        if event_type == "OnChoiceComplete":
+            logger.info(f"resolve: processing OnChoiceComplete event")
+            
+            # deferred アクションを取得
+            deferred_actions = pld.get("deferredActions", [])
+            source_card_id = pld.get("sourceCardId")
+            selection_key = pld.get("selectionKey")
+            
+            # ソースカードを取得
+            source_card = next((c for c in item["cards"] if c["id"] == source_card_id), None)
+            if source_card:
+                logger.info(f"  processing {len(deferred_actions)} deferred actions for card {source_card_id}")
+                
+                # 各deferred アクションを実行
+                for action in deferred_actions:
+                    logger.info(f"    executing deferred action: {action}")
+                    
+                    # selectionKey を action に追加（必要に応じて）
+                    if selection_key and not action.get("selectionKey") and not action.get("sourceKey"):
+                        action["selectionKey"] = selection_key
+                    
+                    # アクションを実行
+                    new_events = apply_action(source_card, action, item, source_card["ownerId"])
+                    evs.extend(new_events)
+                    logger.info(f"      -> generated {len(new_events)} new events")
+            else:
+                logger.warning(f"  source card {source_card_id} not found for OnChoiceComplete")
+        
+        # 通常のトリガーイベントの処理
+        else:
+            cid = pld.get("cardId")
+            card = next((c for c in item["cards"] if c["id"] == cid), None)
+            if card:
+                evs += handle_trigger(card, event_type, item)
+        
         i += 1
     return evs
 
