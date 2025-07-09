@@ -80,6 +80,7 @@ def handle_trigger(card, trig, item):
     新しいイベントシーケンス例:
     1. OnSummon → Select(immediate) → choiceRequests 登録 → クライアント応答
     2. submitChoiceResponse → pendingDeferred から Destroy 実行
+    3. Optional効果の場合 → 発動確認 → choiceRequests 登録 → クライアント応答
     """
     res = []
     hit = False
@@ -89,6 +90,22 @@ def handle_trigger(card, trig, item):
         if eff.get("trigger") != trig:
             continue
         logger.info(f"  matched effect: {eff}")
+        
+        # オプション能力の発動確認
+        req_id = _check_optional_ability_activation(card, eff, item)
+        if req_id:
+            logger.info(f"    -> optional ability confirmation requested for effect: {eff}")
+            # 発動確認が必要な場合、このeffectの処理を保留
+            # pendingDeferred に効果全体を保存
+            effect_copy = dict(eff)
+            effect_copy["sourceCardId"] = card["id"]
+            effect_copy["trigger"] = trig
+            effect_copy["selectionKey"] = req_id
+            effect_copy["effectType"] = "optionalAbility"
+            item.setdefault("pendingDeferred", []).append(effect_copy)
+            hit = True
+            continue
+        
         hit = True
         
         # アクションをdeferred フラグで分離
@@ -112,12 +129,27 @@ def handle_trigger(card, trig, item):
             if a["type"] == "Select":
                 # choiceRequests に登録
                 candidates = resolve_targets(card, a, item)
-                option_ids = [c["id"] for c in candidates]
+                
+                # 選択タイプに応じてoptionsを設定
+                selection_type = a.get("selectionType", "card")
+                if selection_type == "card":
+                    option_ids = [c["id"] for c in candidates]
+                elif selection_type == "levelPoint":
+                    # レベルポイントの選択肢を生成
+                    option_ids = []
+                    for player in item["players"]:
+                        for point in player.get("levelPoints", []):
+                            if not point.get("isUsed", False):
+                                option_ids.append(f"{player['id']}:{point['color']}")
+                else:
+                    option_ids = [c["id"] for c in candidates]
+                
                 item.setdefault("choiceRequests", []).append({
                     "requestId": a["selectionKey"],
                     "playerId": card["ownerId"],
-                    "promptText": a.get("prompt", "カードを選択してください"),
-                    "options":    option_ids
+                    "promptText": a.get("prompt", "選択してください"),
+                    "options":    option_ids,
+                    "selectionType": selection_type
                 })
                 # 後続の deferred アクションを pendingDeferred に保存
                 if current_deferred:
@@ -126,6 +158,7 @@ def handle_trigger(card, trig, item):
                         deferred_action["sourceCardId"] = card["id"]
                         deferred_action["trigger"] = trig
                         deferred_action["selectionKey"] = a["selectionKey"]
+                        deferred_action["selectionType"] = selection_type
                         item.setdefault("pendingDeferred", []).append(deferred_action)
                     logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
             else:
@@ -625,6 +658,86 @@ def get_stage_index(turn_count: int) -> int:
             return idx
     return len(EVOLVE_THRESHOLDS)
 
+# =================== 選択ターゲット解決 =============================
+def _resolve_selection_targets(body, action, item):
+    """
+    選択応答から実際のターゲットオブジェクトを解決する。
+    カードID、レベルポイント、その他の選択タイプに対応。
+    """
+    # 選択されたIDsを取得（複数選択対応）
+    selected_ids = body.get("selectedIds", [])
+    if not selected_ids:
+        # 単一選択の場合の後方互換性
+        selected_value = body.get("selectedValue")
+        if selected_value:
+            selected_ids = [selected_value]
+    
+    if not selected_ids:
+        logger.warning("No selected targets found in choice response")
+        return []
+    
+    targets = []
+    
+    # 選択タイプを判定
+    selection_type = action.get("selectionType", "card")  # デフォルトはカード選択
+    
+    for selected_id in selected_ids:
+        if selection_type == "card":
+            # カードID選択の場合
+            target_card = next((c for c in item["cards"] if c["id"] == selected_id), None)
+            if target_card:
+                targets.append(target_card)
+            else:
+                logger.warning(f"Selected card {selected_id} not found in item['cards']")
+        
+        elif selection_type == "levelPoint":
+            # レベルポイント選択の場合
+            # selected_id は "player_id:color" の形式を想定
+            if ":" in selected_id:
+                player_id, color = selected_id.split(":", 1)
+                player = next((p for p in item["players"] if p["id"] == player_id), None)
+                if player:
+                    # レベルポイントを表現する仮想的なターゲットオブジェクト
+                    level_point_target = {
+                        "id": selected_id,
+                        "type": "levelPoint",
+                        "ownerId": player_id,
+                        "color": color,
+                        "zone": "LevelPoint"
+                    }
+                    targets.append(level_point_target)
+                else:
+                    logger.warning(f"Player {player_id} not found for level point selection")
+            else:
+                logger.warning(f"Invalid level point selection format: {selected_id}")
+        
+        else:
+            # その他の選択タイプの場合
+            logger.warning(f"Unknown selection type: {selection_type}")
+    
+    return targets
+
+
+def _check_optional_ability_activation(card, effect, item):
+    """
+    オプション能力の発動確認を行う。
+    EffectData.optional=true の場合にchoiceRequestを生成する。
+    """
+    if not effect.get("optional", False):
+        return False  # オプション能力ではない
+    
+    # 発動確認のchoiceRequestを生成
+    req_id = f"optional_ability_{card['id']}_{now_iso().replace(':', '').replace('-', '').replace('.', '')}"
+    item.setdefault("choiceRequests", []).append({
+        "requestId": req_id,
+        "playerId": card["ownerId"],
+        "promptText": f"能力を発動しますか？（{effect.get('name', 'Unknown Effect')}）",
+        "options": ["Yes", "No"]
+    })
+    
+    return req_id  # 選択待ち状態（リクエストIDを返す）
+
+
 # =================== Lambda ENTRY =============================
 def lambda_handler(event, context):
     field=event["info"]["fieldName"]; args=event.get("arguments",{})
@@ -1027,19 +1140,67 @@ def lambda_handler(event, context):
         new_pending = []
         for act in item.get("pendingDeferred", []):
             if act["selectionKey"] == req_id:
-                handler = get_handler(act["type"])
-                if handler:
-                    # 選択されたカードIDをリクエストボディから取得
-                    selected_id = body["selectedValue"]
-                    # まずソースカードは不要なのでresolve_targetsを使わず、
-                    # 直接選択されたカードをターゲットにする
-                    target_card = next((c for c in item["cards"] if c["id"] == selected_id), None)
-                    if target_card:
-                        events += handler(target_card, act, item, player_id)
-                    else:
-                        logger.warning(f"Selected card {selected_id} not found in item['cards']")
+                # オプション能力の発動確認の場合
+                if act.get("effectType") == "optionalAbility":
+                    selected_value = body.get("selectedValue", "")
+                    if selected_value == "Yes":
+                        # 発動が選択された場合、効果のアクションを実行
+                        source_card = next((c for c in item["cards"] if c["id"] == act["sourceCardId"]), None)
+                        if source_card:
+                            # 効果のアクションを処理
+                            for action in act.get("actions", []):
+                                if action["type"] == "Select":
+                                    # Select アクションの場合は choiceRequests に登録
+                                    candidates = resolve_targets(source_card, action, item)
+                                    
+                                    # 選択タイプに応じてoptionsを設定
+                                    selection_type = action.get("selectionType", "card")
+                                    if selection_type == "card":
+                                        option_ids = [c["id"] for c in candidates]
+                                    elif selection_type == "levelPoint":
+                                        # レベルポイントの選択肢を生成
+                                        option_ids = []
+                                        for player in item["players"]:
+                                            for point in player.get("levelPoints", []):
+                                                if not point.get("isUsed", False):
+                                                    option_ids.append(f"{player['id']}:{point['color']}")
+                                    else:
+                                        option_ids = [c["id"] for c in candidates]
+                                    
+                                    item.setdefault("choiceRequests", []).append({
+                                        "requestId": action["selectionKey"],
+                                        "playerId": source_card["ownerId"],
+                                        "promptText": action.get("prompt", "選択してください"),
+                                        "options": option_ids,
+                                        "selectionType": selection_type
+                                    })
+                                    
+                                    # 後続のアクションを pendingDeferred に保存
+                                    remaining_actions = act.get("actions", [])[1:]  # Select以降のアクション
+                                    for deferred_a in remaining_actions:
+                                        if deferred_a.get("deferred", False):
+                                            deferred_action = dict(deferred_a)
+                                            deferred_action["sourceCardId"] = source_card["id"]
+                                            deferred_action["trigger"] = act["trigger"]
+                                            deferred_action["selectionKey"] = action["selectionKey"]
+                                            deferred_action["selectionType"] = selection_type
+                                            new_pending.append(deferred_action)
+                                else:
+                                    # 即座に実行すべきアクション
+                                    events += apply_action(source_card, action, item, player_id)
+                    # "No"の場合は何もしない（効果をスキップ）
                 else:
-                    logger.warning(f"Handler not found for action type: {act['type']}")
+                    # 通常のアクション（Select→Destroy等）
+                    handler = get_handler(act["type"])
+                    if handler:
+                        # 選択されたターゲットを取得（カードIDまたは他の選択タイプ）
+                        selected_targets = _resolve_selection_targets(body, act, item)
+                        
+                        # 各ターゲットに対してハンドラを実行
+                        for target in selected_targets:
+                            events += handler(target, act, item, player_id)
+                    else:
+                        logger.warning(f"Handler not found for action type: {act['type']}")
             else:
                 new_pending.append(act)
         item["pendingDeferred"] = new_pending
