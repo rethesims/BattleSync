@@ -111,11 +111,13 @@ def handle_trigger(card, trig, item):
             # Select アクションの場合は特別処理
             if a["type"] == "Select":
                 # choiceRequests に登録
+                candidates = resolve_targets(card, a, item)
+                option_ids = [c["id"] for c in candidates]
                 item.setdefault("choiceRequests", []).append({
                     "requestId": a["selectionKey"],
                     "playerId": card["ownerId"],
-                    "promptText": a.get("prompt", ""),
-                    "options": a.get("options", [])
+                    "promptText": a.get("prompt", "カードを選択してください"),
+                    "options":    option_ids
                 })
                 # 後続の deferred アクションを pendingDeferred に保存
                 if current_deferred:
