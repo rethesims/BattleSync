@@ -658,64 +658,6 @@ def get_stage_index(turn_count: int) -> int:
             return idx
     return len(EVOLVE_THRESHOLDS)
 
-# =================== 選択ターゲット解決 =============================
-def _resolve_selection_targets(body, action, item):
-    """
-    選択応答から実際のターゲットオブジェクトを解決する。
-    カードID、レベルポイント、その他の選択タイプに対応。
-    """
-    # 選択されたIDsを取得（複数選択対応）
-    selected_ids = body.get("selectedIds", [])
-    if not selected_ids:
-        # 単一選択の場合の後方互換性
-        selected_value = body.get("selectedValue")
-        if selected_value:
-            selected_ids = [selected_value]
-    
-    if not selected_ids:
-        logger.warning("No selected targets found in choice response")
-        return []
-    
-    targets = []
-    
-    # 選択タイプを判定
-    selection_type = action.get("selectionType", "card")  # デフォルトはカード選択
-    
-    for selected_id in selected_ids:
-        if selection_type == "card":
-            # カードID選択の場合
-            target_card = next((c for c in item["cards"] if c["id"] == selected_id), None)
-            if target_card:
-                targets.append(target_card)
-            else:
-                logger.warning(f"Selected card {selected_id} not found in item['cards']")
-        
-        elif selection_type == "levelPoint":
-            # レベルポイント選択の場合
-            # selected_id は "player_id:color" の形式を想定
-            if ":" in selected_id:
-                player_id, color = selected_id.split(":", 1)
-                player = next((p for p in item["players"] if p["id"] == player_id), None)
-                if player:
-                    # レベルポイントを表現する仮想的なターゲットオブジェクト
-                    level_point_target = {
-                        "id": selected_id,
-                        "type": "levelPoint",
-                        "ownerId": player_id,
-                        "color": color,
-                        "zone": "LevelPoint"
-                    }
-                    targets.append(level_point_target)
-                else:
-                    logger.warning(f"Player {player_id} not found for level point selection")
-            else:
-                logger.warning(f"Invalid level point selection format: {selected_id}")
-        
-        else:
-            # その他の選択タイプの場合
-            logger.warning(f"Unknown selection type: {selection_type}")
-    
-    return targets
 
 
 def _check_optional_ability_activation(card, effect, item):
@@ -1193,12 +1135,13 @@ def lambda_handler(event, context):
                     # 通常のアクション（Select→Destroy等）
                     handler = get_handler(act["type"])
                     if handler:
-                        # 選択されたターゲットを取得（カードIDまたは他の選択タイプ）
-                        selected_targets = _resolve_selection_targets(body, act, item)
-                        
-                        # 各ターゲットに対してハンドラを実行
-                        for target in selected_targets:
-                            events += handler(target, act, item, player_id)
+                        # sourceCardId からカードオブジェクトを取得
+                        source_card = next((c for c in item["cards"] if c["id"] == act["sourceCardId"]), None)
+                        if source_card:
+                            # アクションハンドラーが自然に resolve_targets を呼び出す
+                            events += handler(source_card, act, item, player_id)
+                        else:
+                            logger.warning(f"Source card {act['sourceCardId']} not found")
                     else:
                         logger.warning(f"Handler not found for action type: {act['type']}")
             else:
