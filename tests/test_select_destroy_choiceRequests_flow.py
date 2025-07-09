@@ -311,7 +311,7 @@ def test_optional_ability_activation():
     # pendingDeferred に効果全体が保存されることを確認
     assert len(test_item["pendingDeferred"]) == 1
     pending_effect = test_item["pendingDeferred"][0]
-    assert pending_effect["effectType"] == "optionalAbility"
+    assert pending_effect["optional"] == True
     assert pending_effect["sourceCardId"] == "optional-card"
     assert pending_effect["trigger"] == "OnSummon"
     assert len(pending_effect["actions"]) == 2

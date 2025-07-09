@@ -101,7 +101,6 @@ def handle_trigger(card, trig, item):
             effect_copy["sourceCardId"] = card["id"]
             effect_copy["trigger"] = trig
             effect_copy["selectionKey"] = req_id
-            effect_copy["effectType"] = "optionalAbility"
             item.setdefault("pendingDeferred", []).append(effect_copy)
             hit = True
             continue
@@ -1141,7 +1140,7 @@ def lambda_handler(event, context):
         for act in item.get("pendingDeferred", []):
             if act["selectionKey"] == req_id:
                 # オプション能力の発動確認の場合
-                if act.get("effectType") == "optionalAbility":
+                if act.get("optional", False):
                     selected_value = body.get("selectedValue", "")
                     if selected_value == "Yes":
                         # 発動が選択された場合、効果のアクションを実行
