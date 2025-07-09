@@ -1029,14 +1029,15 @@ def lambda_handler(event, context):
             if act["selectionKey"] == req_id:
                 handler = get_handler(act["type"])
                 if handler:
-                    # ソースカードを取得
-                    source_card = next((c for c in item["cards"] if c["id"] == act["sourceCardId"]), None)
-                    if source_card:
-                        targets = resolve_targets(source_card, act, item)
-                        for tgt in targets:
-                            events += handler(tgt, act, item, player_id)
+                    # 選択されたカードIDをリクエストボディから取得
+                    selected_id = body["selectedValue"]
+                    # まずソースカードは不要なのでresolve_targetsを使わず、
+                    # 直接選択されたカードをターゲットにする
+                    target_card = next((c for c in item["cards"] if c["id"] == selected_id), None)
+                    if target_card:
+                        events += handler(target_card, act, item, player_id)
                     else:
-                        logger.warning(f"Source card {act['sourceCardId']} not found")
+                        logger.warning(f"Selected card {selected_id} not found in item['cards']")
                 else:
                     logger.warning(f"Handler not found for action type: {act['type']}")
             else:

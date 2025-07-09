@@ -6,6 +6,7 @@ def handle_destroy(card, act, item, owner_id):
     指定したカードを破壊し墓地へ移動する
     """
     targets = resolve_targets(card, act, item)
+    print(f"handle_destroy: {targets=}")
     events = []
     
     for target in targets:
