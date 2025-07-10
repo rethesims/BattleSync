@@ -68,6 +68,7 @@ def cleanup_used_choice_response(item: Dict[str, Any], request_id: str) -> None:
 
 # ---------------- target resolution ----------------
 def resolve_targets(src: Dict[str, Any], action: Dict[str, Any], item: Dict[str, Any]) -> List[Dict]:
+    print(f"resolve_targets: {src=}, {action=}, {item=}")
     # 1) selectionKey 優先
     sel_key = action.get("selectionKey") or action.get("sourceKey")
     if sel_key:
