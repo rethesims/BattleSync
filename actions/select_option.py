@@ -40,22 +40,21 @@ def handle_select_option(card, act, item, owner_id):
             "selectedValue": selected_value
         })
         
-        # SelectOptionResult を追加
-        item.setdefault("results", []).append({
-            "type": "SelectOptionResult",
-            "payload": {
-                "selectionKey": selection_key,
-                "options": options,
-                "selectedValue": selected_value
-            }
-        })
-        
         return [{
             "type": "SelectOption",
             "payload": {
                 "selectionKey": selection_key,
                 "selectedValue": selected_value,
                 "prompt": prompt
+            }
+        },
+        {
+            "type": "SelectOptionResult",
+            "payload": {
+                "selectionKey":  selection_key,
+                "options":       options,
+                "selectedValue": selected_value,
+                "playerId":      owner_id     # 誰の選択結果かも含めておくとあとで分かりやすい
             }
         }]
     
