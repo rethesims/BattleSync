@@ -34,6 +34,7 @@ from actions.call_method import handle_call_method
 from actions.next_summon_buff import handle_next_summon_buff
 from actions.cost_modifier import handle_cost_modifier
 from actions.set_status import handle_set_status
+from actions.handle_turn_end import handle_turn_end
 
 @register("Draw")
 def _draw(card, act, item, owner_id):
@@ -126,6 +127,10 @@ def _cost_modifier(card, act, item, owner_id):
 @register("SetStatus")
 def _set_status(card, act, item, owner_id):
     return handle_set_status(card, act, item, owner_id)
+
+@register("TurnEnd")
+def _turn_end(card, act, item, owner_id):
+    return handle_turn_end(card, act, item, owner_id)
 
 # 汎用移動系アクションタイプ → 移動先ゾーン のマッピング
 _zone_map = {
