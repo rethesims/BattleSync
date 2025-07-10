@@ -640,10 +640,13 @@ def resolve_battle(item, events):
     # ----- ① リーダー攻撃の場合 -----
     if is_leader:
         dmg = int(atk.get("damage", 0))
-        events.append({
-            "type": "Damage",
-            "payload": {"playerId": pb["targetOwnerId"], "amount": dmg},
-        })
+        # ProcessDamage アクションを使用してサーバー側でダメージ処理
+        process_damage_action = {
+            "type": "ProcessDamage",
+            "value": dmg,
+            "targetPlayerId": pb["targetOwnerId"]
+        }
+        events.extend(apply_action(atk, process_damage_action, item, atk["ownerId"]))
 
     # ----- ② ユニット vs ユニット の場合 -----
     else:
@@ -655,10 +658,13 @@ def resolve_battle(item, events):
             if atk.get("IsCritical"):
                 overflow = atk_pow - tgt_pow - int(tgt.get("damage", 0))
                 if overflow > 0:
-                    events.append({
-                        "type": "Damage",
-                        "payload": {"playerId": tgt["ownerId"], "amount": overflow},
-                    })
+                    # ProcessDamage アクションを使用してサーバー側でダメージ処理
+                    process_damage_action = {
+                        "type": "ProcessDamage",
+                        "value": overflow,
+                        "targetPlayerId": tgt["ownerId"]
+                    }
+                    events.extend(apply_action(atk, process_damage_action, item, atk["ownerId"]))
         elif atk_pow < tgt_pow:  # 負け
             destroy_ids.append(atk["id"])
         else:  # 相打ち
