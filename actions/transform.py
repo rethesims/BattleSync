@@ -4,9 +4,35 @@ from helper import resolve_targets
 def handle_transform(card, act, item, owner_id):
     """
     カードを別のカードに変身
+    selectionKey サポート追加：選択結果に基づいて変身先を決定
     """
     targets = resolve_targets(card, act, item)
-    transform_to = act.get("keyword", "")  # 変身先のカードID
+    
+    # 変身先の決定
+    transform_to = ""
+    
+    # 1. selectionKey が指定されている場合、choiceResponses から取得
+    selection_key = act.get("selectionKey")
+    if selection_key:
+        responses = item.get("choiceResponses", [])
+        resp = next((r for r in responses if r.get("requestId") == selection_key), None)
+        if resp:
+            transform_to = resp.get("selectedValue", "")
+    
+    # 2. keyword パラメータ（従来通り）
+    if not transform_to:
+        transform_to = act.get("keyword", "")
+    
+    # 3. transformTo パラメータ（直接指定）
+    if not transform_to:
+        transform_to = act.get("transformTo", "")
+    
+    # 4. options から選択（transformOptions配列）
+    if not transform_to:
+        options = act.get("options", [])
+        if options:
+            transform_to = options[0]  # 最初の選択肢をデフォルト
+    
     events = []
     
     if not transform_to:
@@ -24,6 +50,12 @@ def handle_transform(card, act, item, owner_id):
             target["statuses"] = []
             target["tempStatuses"] = []
         
+        # power/damage のリセットや引き継ぎ処理
+        if act.get("resetPower", False):
+            target["power"] = 1000  # デフォルト値
+        if act.get("resetDamage", False):
+            target["damage"] = 0
+        
         # 変身イベントを生成
         events.append({
             "type": "Transform",
@@ -31,7 +63,9 @@ def handle_transform(card, act, item, owner_id):
                 "cardId": target["id"],
                 "fromCardId": original_id,
                 "toCardId": transform_to,
-                "resetStatuses": act.get("resetStatuses", False)
+                "resetStatuses": act.get("resetStatuses", False),
+                "resetPower": act.get("resetPower", False),
+                "resetDamage": act.get("resetDamage", False)
             }
         })
     

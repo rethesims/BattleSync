@@ -161,6 +161,19 @@ def handle_trigger(card, trig, item):
                         deferred_action["selectionType"] = selection_type
                         item.setdefault("pendingDeferred", []).append(deferred_action)
                     logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
+            # SelectOption アクションの場合は即座に実行
+            elif a["type"] == "SelectOption":
+                # SelectOption を即座に実行
+                res += apply_action(card, a, item, card["ownerId"])
+                # 後続の deferred アクションを pendingDeferred に保存
+                if current_deferred:
+                    for deferred_a in current_deferred:
+                        deferred_action = dict(deferred_a)
+                        deferred_action["sourceCardId"] = card["id"]
+                        deferred_action["trigger"] = trig
+                        deferred_action["selectionKey"] = a.get("selectionKey", "")
+                        item.setdefault("pendingDeferred", []).append(deferred_action)
+                    logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
             else:
                 res += apply_action(card, a, item, card["ownerId"])
     
