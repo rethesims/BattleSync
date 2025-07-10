@@ -55,6 +55,41 @@ TARGET_ZONES = [
     "DamageZone"
 ]
 
+# ---------------- weighted random selection ----------------
+import random
+
+def weighted_random_select(options: List[str], weights: List[int]) -> str:
+    """
+    重み付きランダム選択を実行
+    
+    Args:
+        options: 選択肢のリスト
+        weights: 各選択肢の重み（整数）
+    
+    Returns:
+        選択された選択肢
+    """
+    if not options or not weights or len(options) != len(weights):
+        return ""
+    
+    # 重みの合計を計算
+    total_weight = sum(weights)
+    if total_weight <= 0:
+        return ""
+    
+    # 0から合計重みの間でランダム値を生成
+    rand_val = random.randint(1, total_weight)
+    
+    # 重みに基づいて選択肢を決定
+    current_weight = 0
+    for i, weight in enumerate(weights):
+        current_weight += weight
+        if rand_val <= current_weight:
+            return options[i]
+    
+    # フォールバック（通常ここには来ない）
+    return options[0] if options else ""
+
 # ---------------- choice response cleanup ----------------
 def cleanup_used_choice_response(item: Dict[str, Any], request_id: str) -> None:
     """
