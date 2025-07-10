@@ -6,11 +6,11 @@ def handle_transform(card, act, item, owner_id):
     カードを別のカードに変身
     selectionKey サポート追加：選択結果に基づいて変身先を決定
     """
-    # Transform アクションで selectionKey が変身先を決定するために使用されている場合、
-    # resolve_targets で selectionKey を使用してはいけない
-    # 代わりに target パラメータを使用してターゲットを決定する
+    # Transform アクションのターゲット解決
+    # target が "Self" の場合、selectionKey を使ってターゲットを決定
+    # target が "Self" 以外の場合、selectionKey は変身先決定にのみ使用
     act_for_targets = act.copy()
-    if act.get("selectionKey") and act.get("target"):
+    if act.get("target") != "Self" and act.get("selectionKey") and act.get("target"):
         # selectionKey は変身先の決定に使用されるため、resolve_targets では無視する
         act_for_targets.pop("selectionKey", None)
     
@@ -45,6 +45,19 @@ def handle_transform(card, act, item, owner_id):
     
     if not transform_to:
         return []
+    
+    # 変身元のカード（Self）を Exile ゾーンに移動
+    if card and card.get("zone") != "ExileZone":
+        from_zone = card.get("zone")
+        card["zone"] = "ExileZone"
+        events.append({
+            "type": "MoveZone",
+            "payload": {
+                "cardId": card["id"],
+                "fromZone": from_zone,
+                "toZone": "ExileZone"
+            }
+        })
     
     # 変身先のカードマスター情報を取得
     card_masters = fetch_card_masters([transform_to])
