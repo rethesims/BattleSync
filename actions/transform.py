@@ -6,6 +6,10 @@ def handle_transform(card, act, item, owner_id):
     カードを別のカードに変身
     selectionKey サポート追加：選択結果に基づいて変身先を決定
     """
+    # selectionKey が指定されていて target が空の場合、Self をデフォルトとする
+    if act.get("selectionKey") and not act.get("target"):
+        act = {**act, "target": "Self"}
+    
     targets = resolve_targets(card, act, item)
     
     # 変身先の決定

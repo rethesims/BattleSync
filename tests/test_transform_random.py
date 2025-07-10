@@ -189,5 +189,45 @@ def test_transform_no_target():
         # 変身先が指定されていない場合は何もしない
         assert len(events) == 0
 
+def test_transform_empty_target_with_selection_key():
+    """target が空でも selectionKey があれば Self をデフォルトにするテスト"""
+    card = {"id": "test_card", "ownerId": "player1"}
+    target_card = {
+        "id": "target_card",
+        "baseCardId": "original_card",
+        "ownerId": "player1",
+        "zone": "Field",
+        "statuses": [],
+        "tempStatuses": []
+    }
+    
+    # target が空文字でも selectionKey があれば動作する
+    act = {
+        "type": "Transform",
+        "target": "",  # 空文字
+        "selectionKey": "random_transform"
+    }
+    
+    item = {
+        "cards": [card, target_card],
+        "choiceResponses": [
+            {
+                "requestId": "random_transform",
+                "selectedValue": "new_card_id"
+            }
+        ]
+    }
+    
+    with patch('actions.transform.resolve_targets') as mock_resolve:
+        mock_resolve.return_value = [target_card]
+        
+        events = handle_transform(card, act, item, "player1")
+        
+        # Self がデフォルトに設定されて変身が実行される
+        assert len(events) == 1
+        assert events[0]["type"] == "Transform"
+        assert events[0]["payload"]["toCardId"] == "new_card_id"
+        assert target_card["baseCardId"] == "new_card_id"
+
 # patch のインポート
 from unittest.mock import patch
