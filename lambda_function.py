@@ -165,15 +165,22 @@ def handle_trigger(card, trig, item):
             elif a["type"] == "SelectOption":
                 # SelectOption を即座に実行
                 res += apply_action(card, a, item, card["ownerId"])
-                # 後続の deferred アクションを pendingDeferred に保存
+                # mode="random" の場合は後続アクションを即座に実行、それ以外は pendingDeferred に保存
                 if current_deferred:
-                    for deferred_a in current_deferred:
-                        deferred_action = dict(deferred_a)
-                        deferred_action["sourceCardId"] = card["id"]
-                        deferred_action["trigger"] = trig
-                        deferred_action["selectionKey"] = a.get("selectionKey", "")
-                        item.setdefault("pendingDeferred", []).append(deferred_action)
-                    logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
+                    if a.get("mode") == "random":
+                        # mode="random" の場合は即座に後続アクションを実行
+                        logger.info(f"    executing {len(current_deferred)} actions immediately (mode=random)")
+                        for deferred_a in current_deferred:
+                            res += apply_action(card, deferred_a, item, card["ownerId"])
+                    else:
+                        # 通常モードの場合は pendingDeferred に保存
+                        for deferred_a in current_deferred:
+                            deferred_action = dict(deferred_a)
+                            deferred_action["sourceCardId"] = card["id"]
+                            deferred_action["trigger"] = trig
+                            deferred_action["selectionKey"] = a.get("selectionKey", "")
+                            item.setdefault("pendingDeferred", []).append(deferred_action)
+                        logger.info(f"    stored {len(current_deferred)} actions in pendingDeferred")
             else:
                 res += apply_action(card, a, item, card["ownerId"])
     
