@@ -2,11 +2,80 @@
 from decimal import Decimal
 import json
 import re
+import os
+import boto3
 from typing import List, Dict, Any
 
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
         return int(obj) if isinstance(obj, Decimal) else super().default(obj)
+
+# DynamoDB client for card master fetching
+dynamodb = boto3.client("dynamodb")
+
+# ──────────────────────────────────────────────
+# カードマスター取得
+# ──────────────────────────────────────────────
+def fetch_card_masters(card_ids: List[str]) -> Dict[str, Dict]:
+    """
+    CARD_MASTER_TABLE からまとめて取得 → { cardId: masterDict }
+    """
+    if not card_ids:
+        return {}
+
+    keys = [{"cardId": {"S": cid}} for cid in set(card_ids)]
+    resp = dynamodb.batch_get_item(
+        RequestItems={
+            os.environ["CARD_MASTER_TABLE"]: {"Keys": keys}
+        }
+    )
+    items = resp["Responses"].get(os.environ["CARD_MASTER_TABLE"], [])
+    
+    # DynamoDB形式のレスポンスを通常の辞書形式に変換
+    result = {}
+    for item in items:
+        card_id = item["cardId"]["S"]
+        # DynamoDB形式のアイテムをパースして通常の辞書形式に変換
+        parsed_item = _parse_dynamodb_item(item)
+        result[card_id] = parsed_item
+    
+    return result
+
+def _parse_dynamodb_item(item: Dict) -> Dict:
+    """DynamoDB形式のアイテムを通常の辞書形式に変換"""
+    result = {}
+    for key, value in item.items():
+        if isinstance(value, dict):
+            if "S" in value:
+                result[key] = value["S"]
+            elif "N" in value:
+                result[key] = Decimal(value["N"])
+            elif "BOOL" in value:
+                result[key] = value["BOOL"]
+            elif "L" in value:
+                result[key] = [_parse_dynamodb_value(v) for v in value["L"]]
+            elif "M" in value:
+                result[key] = _parse_dynamodb_item(value["M"])
+            else:
+                result[key] = value
+        else:
+            result[key] = value
+    return result
+
+def _parse_dynamodb_value(value: Dict) -> Any:
+    """DynamoDB形式の値を通常の値に変換"""
+    if "S" in value:
+        return value["S"]
+    elif "N" in value:
+        return Decimal(value["N"])
+    elif "BOOL" in value:
+        return value["BOOL"]
+    elif "L" in value:
+        return [_parse_dynamodb_value(v) for v in value["L"]]
+    elif "M" in value:
+        return _parse_dynamodb_item(value["M"])
+    else:
+        return value
 
 # ---------------- Dynamo / Decimal -----------------
 def d(val):

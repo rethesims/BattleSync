@@ -1,6 +1,6 @@
 # actions/create_token.py
 import uuid
-from helper import weighted_random_select
+from helper import weighted_random_select, fetch_card_masters, d
 
 def handle_create_token(card, act, item, owner_id):
     """
@@ -32,6 +32,16 @@ def handle_create_token(card, act, item, owner_id):
     
     target_zone = zone_map.get(token_zone, "Field")
     
+    # 選択される可能性のあるトークンIDを収集
+    possible_token_ids = []
+    if token_base_ids:
+        possible_token_ids = token_base_ids
+    else:
+        possible_token_ids = [token_card_id]
+    
+    # カードマスターデータを事前に取得
+    card_masters = fetch_card_masters(possible_token_ids)
+    
     for _ in range(token_count):
         # トークンベースIDを決定
         selected_token_id = ""
@@ -57,15 +67,39 @@ def handle_create_token(card, act, item, owner_id):
             "ownerId": owner_id,
             "zone": target_zone,
             "isFaceUp": True,
-            "level": 1,
-            "power": 1000,  # デフォルト値
-            "damage": 0,
+            "level": d(1),
+            "currentLevel": d(1),
+            "power": d(1000),  # デフォルト値
+            "currentPower": d(1000),
+            "damage": d(0),
+            "currentDamage": d(0),
             "statuses": [
                 {"key": "IsToken", "value": True}
             ],
             "tempStatuses": [],
-            "additionalEffects": []
+            "effectList": []
         }
+        
+        # カードマスターデータがある場合、基本属性を更新
+        if selected_token_id in card_masters:
+            master_data = card_masters[selected_token_id]
+            
+            # 基本属性の更新
+            if "power" in master_data:
+                token_card["power"] = d(master_data["power"])
+                token_card["currentPower"] = d(master_data["power"])
+            
+            if "damage" in master_data:
+                token_card["damage"] = d(master_data["damage"])
+                token_card["currentDamage"] = d(master_data["damage"])
+            
+            if "level" in master_data:
+                token_card["level"] = d(master_data["level"])
+                token_card["currentLevel"] = d(master_data["level"])
+            
+            # effectList を更新（新しいカードの能力を取得）
+            if "effectList" in master_data:
+                token_card["effectList"] = master_data["effectList"]
         
         # マッチのカードリストに追加
         item["cards"].append(token_card)

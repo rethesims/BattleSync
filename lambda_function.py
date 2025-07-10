@@ -7,7 +7,7 @@ from importlib import import_module
 # --- 自前モジュール -----------------------------------------
 from helper import (
     add_status, add_temp_status, keyword_map, d, resolve_targets,
-    DecimalEncoder, TARGET_ZONES,
+    DecimalEncoder, TARGET_ZONES, fetch_card_masters,
 )
 from action_registry import get as get_handler  # ここがディスパッチ
 import actions  # noqa  (サイドエフェクトで handler 登録)
