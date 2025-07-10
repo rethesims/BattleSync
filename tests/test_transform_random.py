@@ -189,5 +189,52 @@ def test_transform_no_target():
         # 変身先が指定されていない場合は何もしない
         assert len(events) == 0
 
+def test_transform_with_selection_key_and_target():
+    """selectionKey と target が同時に指定されている場合のテスト"""
+    card = {"id": "test_card", "ownerId": "player1", "zone": "Field"}
+    target_card = {
+        "id": "target_card",
+        "baseCardId": "original_card",
+        "ownerId": "player1",
+        "zone": "Field",
+        "statuses": [],
+        "tempStatuses": []
+    }
+    
+    act = {
+        "type": "Transform",
+        "target": "Self",
+        "selectionKey": "RandomSelectKey"
+    }
+    
+    item = {
+        "cards": [card, target_card],
+        "choiceResponses": [
+            {
+                "requestId": "RandomSelectKey",
+                "selectedValue": "token_004"
+            }
+        ]
+    }
+    
+    with patch('actions.transform.resolve_targets') as mock_resolve:
+        # resolve_targets が正しく呼び出されることを確認
+        mock_resolve.return_value = [target_card]
+        
+        events = handle_transform(card, act, item, "player1")
+        
+        # resolve_targets が selectionKey なしで呼び出されることを確認
+        assert mock_resolve.called
+        call_args = mock_resolve.call_args[0]
+        action_passed = call_args[1]
+        assert "selectionKey" not in action_passed
+        assert action_passed["target"] == "Self"
+        
+        # 変身が正しく実行されることを確認
+        assert len(events) == 1
+        assert events[0]["type"] == "Transform"
+        assert events[0]["payload"]["toCardId"] == "token_004"
+        assert target_card["baseCardId"] == "token_004"
+
 # patch のインポート
 from unittest.mock import patch
