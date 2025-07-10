@@ -835,10 +835,21 @@ def lambda_handler(event, context):
         old = item.get("phase", "Start")
         new = seq[(seq.index(old) + 1) % len(seq)]
 
+        # 基本イベント
+        events = [
+            {"type": "TurnEnded",    "payload": {"playerId": cur}},
+            {"type": "PhaseChanged", "payload": {"phase": new, "playerId": item["turnPlayerId"]}}
+        ]
+
         # End → Start でターンプレイヤー交代
         if new == "Start":
             # ターンチェンジの前にターン数をインクリメント（End フェーズ後）
             if old == "End":
+                # OnTurnEnd トリガーを処理（ターン終了時の効果を発動）
+                for card in item["cards"]:
+                    if card["zone"] == "Field":
+                        events.extend(handle_trigger(card, "OnTurnEnd", item))
+                
                 item["turnCount"] = item.get("turnCount", 0) + 1
                 clear_expired(item["cards"], item["turnCount"])
                 # 攻撃フラグリセット
@@ -847,12 +858,6 @@ def lambda_handler(event, context):
                         add_status(c, "HasAttacked", False)
             # プレイヤー切り替え
             item["turnPlayerId"] = nxt["id"]
-
-        # 基本イベント
-        events = [
-            {"type": "TurnEnded",    "payload": {"playerId": cur}},
-            {"type": "PhaseChanged", "payload": {"phase": new, "playerId": item["turnPlayerId"]}}
-        ]
         item["phase"] = new
 
         # 新ターン Start フェーズでリーダーパッシブ適用
