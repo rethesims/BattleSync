@@ -1,22 +1,29 @@
 # actions/transform.py
-from helper import resolve_targets, fetch_card_masters, d
+import uuid
+from helper import resolve_targets, fetch_card_masters, d, cleanup_used_choice_response
 
 def handle_transform(card, act, item, owner_id):
     """
-    カードを別のカードに変身
-    selectionKey サポート追加：選択結果に基づいて変身先を決定
+    Transform: 新しいトークンを生成し、元カードを ExileZone に移動
+    SelectOption の結果に基づいて変身先トークンを決定
     """
-    # Transform アクションで selectionKey が変身先を決定するために使用されている場合、
-    # resolve_targets で selectionKey を使用してはいけない
-    # 代わりに target パラメータを使用してターゲットを決定する
-    act_for_targets = act.copy()
-    if act.get("selectionKey") and act.get("target"):
-        # selectionKey は変身先の決定に使用されるため、resolve_targets では無視する
-        act_for_targets.pop("selectionKey", None)
+    # 1. 変身先トークンIDを決定（SelectOption結果から）
+    transform_to = _get_transform_target(act, item)
     
-    targets = resolve_targets(card, act_for_targets, item)
+    if not transform_to:
+        return []
     
-    # 変身先の決定
+    # 2. 元カード（Self）を ExileZone に移動
+    exile_events = _move_card_to_exile(card, item)
+    
+    # 3. 新しいトークンを生成（元カードと同じゾーンに）
+    token_events = _create_transform_token(transform_to, card, item, owner_id)
+    
+    return exile_events + token_events
+
+
+def _get_transform_target(act, item):
+    """変身先トークンIDを決定"""
     transform_to = ""
     
     # 1. selectionKey が指定されている場合、choiceResponses から取得
@@ -26,6 +33,8 @@ def handle_transform(card, act, item, owner_id):
         resp = next((r for r in responses if r.get("requestId") == selection_key), None)
         if resp:
             transform_to = resp.get("selectedValue", "")
+            # 使用済みchoiceResponseを削除
+            cleanup_used_choice_response(item, selection_key)
     
     # 2. keyword パラメータ（従来通り）
     if not transform_to:
@@ -41,66 +50,81 @@ def handle_transform(card, act, item, owner_id):
         if options:
             transform_to = options[0]  # 最初の選択肢をデフォルト
     
-    events = []
+    return transform_to
+
+
+def _move_card_to_exile(card, item):
+    """元カードを ExileZone に移動"""
+    from_zone = card.get("zone")
+    card["zone"] = "ExileZone"
     
-    if not transform_to:
-        return []
-    
-    # 変身先のカードマスター情報を取得
+    return [{
+        "type": "MoveZone",
+        "payload": {
+            "cardId": card["id"],
+            "fromZone": from_zone,
+            "toZone": "ExileZone"
+        }
+    }]
+
+
+def _create_transform_token(transform_to, original_card, item, owner_id):
+    """新しいトークンを生成"""
+    # カードマスターデータを取得
     card_masters = fetch_card_masters([transform_to])
     
-    for target in targets:
-        # 変身前の情報を保存
-        original_id = target["baseCardId"]
-        
-        # 変身実行
-        target["baseCardId"] = transform_to
-        
-        # カードマスターデータがある場合、カードの基本属性を更新
-        if transform_to in card_masters:
-            master_data = card_masters[transform_to]
-            
-            # 基本属性の更新
-            if "power" in master_data:
-                target["power"] = d(master_data["power"])
-                target["currentPower"] = d(master_data["power"])
-            
-            if "damage" in master_data:
-                target["damage"] = d(master_data["damage"])
-                target["currentDamage"] = d(master_data["damage"])
-            
-            if "level" in master_data:
-                target["level"] = d(master_data["level"])
-                target["currentLevel"] = d(master_data["level"])
-            
-            # effectList を更新（新しいカードの能力を取得）
-            if "effectList" in master_data:
-                target["effectList"] = master_data["effectList"]
-        
-        # 変身時はステータスもリセット（オプション）
-        if act.get("resetStatuses", False):
-            target["statuses"] = []
-            target["tempStatuses"] = []
-        
-        # power/damage のリセットや引き継ぎ処理（手動指定の場合）
-        if act.get("resetPower", False):
-            target["power"] = d(1000)  # デフォルト値
-            target["currentPower"] = d(1000)
-        if act.get("resetDamage", False):
-            target["damage"] = d(0)
-            target["currentDamage"] = d(0)
-        
-        # 変身イベントを生成
-        events.append({
-            "type": "Transform",
-            "payload": {
-                "cardId": target["id"],
-                "fromCardId": original_id,
-                "toCardId": transform_to,
-                "resetStatuses": act.get("resetStatuses", False),
-                "resetPower": act.get("resetPower", False),
-                "resetDamage": act.get("resetDamage", False)
-            }
-        })
+    # 新しいトークンを生成
+    token_id = str(uuid.uuid4())
+    token_card = {
+        "id": token_id,
+        "baseCardId": transform_to,
+        "ownerId": owner_id,
+        "zone": original_card["zone"],  # 元カードと同じゾーンに生成
+        "isFaceUp": True,
+        "level": d(1),
+        "currentLevel": d(1),
+        "power": d(1000),  # デフォルト値
+        "currentPower": d(1000),
+        "damage": d(0),
+        "currentDamage": d(0),
+        "statuses": [
+            {"key": "IsToken", "value": True}
+        ],
+        "tempStatuses": [],
+        "effectList": []
+    }
     
-    return events
+    # カードマスターデータがある場合、基本属性を更新
+    if transform_to in card_masters:
+        master_data = card_masters[transform_to]
+        
+        # 基本属性の更新
+        if "power" in master_data:
+            token_card["power"] = d(master_data["power"])
+            token_card["currentPower"] = d(master_data["power"])
+        
+        if "damage" in master_data:
+            token_card["damage"] = d(master_data["damage"])
+            token_card["currentDamage"] = d(master_data["damage"])
+        
+        if "level" in master_data:
+            token_card["level"] = d(master_data["level"])
+            token_card["currentLevel"] = d(master_data["level"])
+        
+        # effectList を更新（新しいカードの能力を取得）
+        if "effectList" in master_data:
+            token_card["effectList"] = master_data["effectList"]
+    
+    # マッチのカードリストに追加
+    item["cards"].append(token_card)
+    
+    # トークン生成イベントを生成
+    return [{
+        "type": "CreateToken",
+        "payload": {
+            "tokenId": token_id,
+            "baseCardId": transform_to,
+            "ownerId": owner_id,
+            "zone": original_card["zone"]
+        }
+    }]

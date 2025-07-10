@@ -7,12 +7,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from actions.transform import handle_transform
 
 def test_transform_with_selection_key():
-    """selectionKey を使用した変身のテスト"""
+    """selectionKey を使用した変身のテスト - 新しいトークン生成 + 元カード Exile 移動"""
     # テスト用のカード
-    card = {"id": "test_card", "ownerId": "player1"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+    original_card = {
+        "id": "original_card",
+        "baseCardId": "cocoon_card",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [{"key": "TestStatus", "value": "test"}],
@@ -25,51 +24,70 @@ def test_transform_with_selection_key():
     act = {
         "type": "Transform",
         "target": "Self",
-        "selectionKey": "random_transform",
-        "resetStatuses": True,
-        "resetPower": True,
-        "resetDamage": True
+        "selectionKey": "random_transform"
     }
     
     # テスト用のアイテム
     item = {
-        "cards": [card, target_card],
+        "cards": [original_card],
         "choiceResponses": [
             {
                 "requestId": "random_transform",
-                "selectedValue": "new_card_id"
+                "selectedValue": "new_token_id"
             }
         ]
     }
     
-    # Mock resolve_targets to return target_card
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        mock_resolve.return_value = [target_card]
+    # Mock fetch_card_masters to return master data
+    with patch('actions.transform.fetch_card_masters') as mock_fetch:
+        mock_fetch.return_value = {
+            "new_token_id": {
+                "power": 3000,
+                "damage": 1000,
+                "level": 2,
+                "effectList": [{"type": "SampleEffect"}]
+            }
+        }
         
-        events = handle_transform(card, act, item, "player1")
+        events = handle_transform(original_card, act, item, "player1")
         
-        # イベントが正しく生成されることを確認
-        assert len(events) == 1
-        assert events[0]["type"] == "Transform"
-        assert events[0]["payload"]["cardId"] == "target_card"
-        assert events[0]["payload"]["fromCardId"] == "original_card"
-        assert events[0]["payload"]["toCardId"] == "new_card_id"
-        assert events[0]["payload"]["resetStatuses"] is True
-        assert events[0]["payload"]["resetPower"] is True
-        assert events[0]["payload"]["resetDamage"] is True
+        # 2つのイベントが生成されることを確認（MoveZone + CreateToken）
+        assert len(events) == 2
         
-        # カードが変身していることを確認
-        assert target_card["baseCardId"] == "new_card_id"
-        assert target_card["statuses"] == []  # リセットされている
-        assert target_card["power"] == 1000   # デフォルト値
-        assert target_card["damage"] == 0     # リセット
+        # 元カードが ExileZone に移動するイベント
+        assert events[0]["type"] == "MoveZone"
+        assert events[0]["payload"]["cardId"] == "original_card"
+        assert events[0]["payload"]["fromZone"] == "Field"
+        assert events[0]["payload"]["toZone"] == "ExileZone"
+        
+        # 新しいトークンが生成されるイベント
+        assert events[1]["type"] == "CreateToken"
+        assert events[1]["payload"]["baseCardId"] == "new_token_id"
+        assert events[1]["payload"]["ownerId"] == "player1"
+        assert events[1]["payload"]["zone"] == "Field"  # 元カードと同じゾーン
+        
+        # 元カードが ExileZone に移動していることを確認
+        assert original_card["zone"] == "ExileZone"
+        
+        # 新しいトークンが item.cards に追加されていることを確認
+        assert len(item["cards"]) == 2
+        new_token = item["cards"][1]
+        assert new_token["baseCardId"] == "new_token_id"
+        assert new_token["ownerId"] == "player1"
+        assert new_token["zone"] == "Field"
+        assert new_token["power"] == 3000
+        assert new_token["damage"] == 1000
+        assert new_token["level"] == 2
+        assert {"key": "IsToken", "value": True} in new_token["statuses"]
+        
+        # choiceResponse が削除されていることを確認
+        assert len(item["choiceResponses"]) == 0
 
 def test_transform_with_keyword():
     """keyword パラメータを使用した変身のテスト"""
-    card = {"id": "test_card", "ownerId": "player1"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+    original_card = {
+        "id": "original_card",
+        "baseCardId": "base_card",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [],
@@ -82,23 +100,30 @@ def test_transform_with_keyword():
         "keyword": "evolved_card"
     }
     
-    item = {"cards": [card, target_card]}
+    item = {"cards": [original_card]}
     
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        mock_resolve.return_value = [target_card]
+    with patch('actions.transform.fetch_card_masters') as mock_fetch:
+        mock_fetch.return_value = {
+            "evolved_card": {
+                "power": 2500,
+                "damage": 800,
+                "level": 3
+            }
+        }
         
-        events = handle_transform(card, act, item, "player1")
+        events = handle_transform(original_card, act, item, "player1")
         
-        assert len(events) == 1
-        assert events[0]["payload"]["toCardId"] == "evolved_card"
-        assert target_card["baseCardId"] == "evolved_card"
+        # 2つのイベントが生成されることを確認
+        assert len(events) == 2
+        assert events[0]["type"] == "MoveZone"
+        assert events[1]["type"] == "CreateToken"
+        assert events[1]["payload"]["baseCardId"] == "evolved_card"
 
 def test_transform_with_options():
     """options パラメータを使用した変身のテスト"""
-    card = {"id": "test_card", "ownerId": "player1"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+    original_card = {
+        "id": "original_card",
+        "baseCardId": "base_card",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [],
@@ -111,23 +136,21 @@ def test_transform_with_options():
         "options": ["option1", "option2", "option3"]
     }
     
-    item = {"cards": [card, target_card]}
+    item = {"cards": [original_card]}
     
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        mock_resolve.return_value = [target_card]
+    with patch('actions.transform.fetch_card_masters') as mock_fetch:
+        mock_fetch.return_value = {"option1": {"power": 1500}}
         
-        events = handle_transform(card, act, item, "player1")
+        events = handle_transform(original_card, act, item, "player1")
         
-        assert len(events) == 1
-        assert events[0]["payload"]["toCardId"] == "option1"  # 最初の選択肢
-        assert target_card["baseCardId"] == "option1"
+        assert len(events) == 2
+        assert events[1]["payload"]["baseCardId"] == "option1"  # 最初の選択肢
 
 def test_transform_priority_order():
     """変身先決定の優先順位テスト"""
-    card = {"id": "test_card", "ownerId": "player1"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+    original_card = {
+        "id": "original_card",
+        "baseCardId": "base_card",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [],
@@ -145,7 +168,7 @@ def test_transform_priority_order():
     }
     
     item = {
-        "cards": [card, target_card],
+        "cards": [original_card],
         "choiceResponses": [
             {
                 "requestId": "selection_key",
@@ -154,20 +177,19 @@ def test_transform_priority_order():
         ]
     }
     
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        mock_resolve.return_value = [target_card]
+    with patch('actions.transform.fetch_card_masters') as mock_fetch:
+        mock_fetch.return_value = {"selected_card": {"power": 2000}}
         
-        events = handle_transform(card, act, item, "player1")
+        events = handle_transform(original_card, act, item, "player1")
         
         # selectionKey が最優先で使用される
-        assert events[0]["payload"]["toCardId"] == "selected_card"
+        assert events[1]["payload"]["baseCardId"] == "selected_card"
 
 def test_transform_no_target():
     """変身先が指定されていない場合のテスト"""
-    card = {"id": "test_card", "ownerId": "player1"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+    original_card = {
+        "id": "original_card",
+        "baseCardId": "base_card",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [],
@@ -179,22 +201,18 @@ def test_transform_no_target():
         "target": "Self"
     }
     
-    item = {"cards": [card, target_card]}
+    item = {"cards": [original_card]}
     
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        mock_resolve.return_value = [target_card]
-        
-        events = handle_transform(card, act, item, "player1")
-        
-        # 変身先が指定されていない場合は何もしない
-        assert len(events) == 0
+    events = handle_transform(original_card, act, item, "player1")
+    
+    # 変身先が指定されていない場合は何もしない
+    assert len(events) == 0
 
-def test_transform_with_selection_key_and_target():
-    """selectionKey と target が同時に指定されている場合のテスト"""
-    card = {"id": "test_card", "ownerId": "player1", "zone": "Field"}
-    target_card = {
-        "id": "target_card",
-        "baseCardId": "original_card",
+def test_transform_cocoon_scenario():
+    """可能性の繭カードのシナリオテスト - SelectOption → Transform の流れ"""
+    cocoon_card = {
+        "id": "cocoon_card_id",
+        "baseCardId": "possibility_cocoon",
         "ownerId": "player1",
         "zone": "Field",
         "statuses": [],
@@ -208,7 +226,7 @@ def test_transform_with_selection_key_and_target():
     }
     
     item = {
-        "cards": [card, target_card],
+        "cards": [cocoon_card],
         "choiceResponses": [
             {
                 "requestId": "RandomSelectKey",
@@ -217,24 +235,42 @@ def test_transform_with_selection_key_and_target():
         ]
     }
     
-    with patch('actions.transform.resolve_targets') as mock_resolve:
-        # resolve_targets が正しく呼び出されることを確認
-        mock_resolve.return_value = [target_card]
+    with patch('actions.transform.fetch_card_masters') as mock_fetch:
+        mock_fetch.return_value = {
+            "token_004": {
+                "power": 4000,
+                "damage": 1500,
+                "level": 4,
+                "effectList": [{"type": "PowerfulEffect"}]
+            }
+        }
         
-        events = handle_transform(card, act, item, "player1")
+        events = handle_transform(cocoon_card, act, item, "player1")
         
-        # resolve_targets が selectionKey なしで呼び出されることを確認
-        assert mock_resolve.called
-        call_args = mock_resolve.call_args[0]
-        action_passed = call_args[1]
-        assert "selectionKey" not in action_passed
-        assert action_passed["target"] == "Self"
+        # 2つのイベントが生成されることを確認
+        assert len(events) == 2
         
-        # 変身が正しく実行されることを確認
-        assert len(events) == 1
-        assert events[0]["type"] == "Transform"
-        assert events[0]["payload"]["toCardId"] == "token_004"
-        assert target_card["baseCardId"] == "token_004"
+        # 元の繭カードが ExileZone に移動
+        assert events[0]["type"] == "MoveZone"
+        assert events[0]["payload"]["cardId"] == "cocoon_card_id"
+        assert events[0]["payload"]["toZone"] == "ExileZone"
+        
+        # 新しいトークンが生成される
+        assert events[1]["type"] == "CreateToken"
+        assert events[1]["payload"]["baseCardId"] == "token_004"
+        assert events[1]["payload"]["zone"] == "Field"
+        
+        # 元カードが ExileZone に移動していることを確認
+        assert cocoon_card["zone"] == "ExileZone"
+        
+        # 新しいトークンが追加されていることを確認
+        assert len(item["cards"]) == 2
+        new_token = item["cards"][1]
+        assert new_token["baseCardId"] == "token_004"
+        assert new_token["power"] == 4000
+        assert new_token["damage"] == 1500
+        assert new_token["level"] == 4
+        assert {"key": "IsToken", "value": True} in new_token["statuses"]
 
 # patch のインポート
 from unittest.mock import patch
