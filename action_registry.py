@@ -131,7 +131,7 @@ def _set_status(card, act, item, owner_id):
 _zone_map = {
     "Bounce": "Hand",
     "Discard": "Graveyard",
-    "Exile": "ExileZone",
+    "Exile": "Exile",
     "MoveField": "Field",
     "MoveDeck": "Deck",
     "MoveToDamageZone": "DamageZone",

@@ -120,7 +120,7 @@ TARGET_ZONES = [
     "Hand",
     "Deck",
     "Graveyard",
-    "ExileZone",
+    "Exile",
     "DamageZone"
 ]
 
@@ -251,11 +251,11 @@ def get_target_cards(src: Dict, action: Dict, item: Dict) -> List[Dict]:
     if target == "AllGraveyard":
         return [c for c in cards if c["zone"] == "Graveyard"]
     if target == "PlayerExileZone":
-        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "ExileZone"]
+        return [c for c in cards if c["ownerId"] == owner and c["zone"] == "Exile"]
     if target == "EnemyExileZone":
-        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "ExileZone"]
+        return [c for c in cards if c["ownerId"] != owner and c["zone"] == "Exile"]
     if target == "AllExileZone":
-        return [c for c in cards if c["zone"] == "ExileZone"]
+        return [c for c in cards if c["zone"] == "Exile"]
     if target == "PlayerDamageZone":
         return [c for c in cards if c["ownerId"] == owner and c["zone"] == "DamageZone"]
     if target == "EnemyDamageZone":

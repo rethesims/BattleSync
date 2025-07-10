@@ -456,7 +456,7 @@ def _get_target_zones_from_action(action):
     elif "Graveyard" in target:
         return ["Graveyard"]
     elif "ExileZone" in target:
-        return ["ExileZone"]
+        return ["Exile"]
     elif "DamageZone" in target:
         return ["DamageZone"]
     elif "Deck" in target:

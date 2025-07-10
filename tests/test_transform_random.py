@@ -54,11 +54,11 @@ def test_transform_with_selection_key():
         # 2つのイベントが生成されることを確認（MoveZone + CreateToken）
         assert len(events) == 2
         
-        # 元カードが ExileZone に移動するイベント
+        # 元カードが Exile に移動するイベント
         assert events[0]["type"] == "MoveZone"
         assert events[0]["payload"]["cardId"] == "original_card"
         assert events[0]["payload"]["fromZone"] == "Field"
-        assert events[0]["payload"]["toZone"] == "ExileZone"
+        assert events[0]["payload"]["toZone"] == "Exile"
         
         # 新しいトークンが生成されるイベント
         assert events[1]["type"] == "CreateToken"
@@ -66,8 +66,8 @@ def test_transform_with_selection_key():
         assert events[1]["payload"]["ownerId"] == "player1"
         assert events[1]["payload"]["zone"] == "Field"  # 元カードと同じゾーン
         
-        # 元カードが ExileZone に移動していることを確認
-        assert original_card["zone"] == "ExileZone"
+        # 元カードが Exile に移動していることを確認
+        assert original_card["zone"] == "Exile"
         
         # 新しいトークンが item.cards に追加されていることを確認
         assert len(item["cards"]) == 2
@@ -250,18 +250,18 @@ def test_transform_cocoon_scenario():
         # 2つのイベントが生成されることを確認
         assert len(events) == 2
         
-        # 元の繭カードが ExileZone に移動
+        # 元の繭カードが Exile に移動
         assert events[0]["type"] == "MoveZone"
         assert events[0]["payload"]["cardId"] == "cocoon_card_id"
-        assert events[0]["payload"]["toZone"] == "ExileZone"
+        assert events[0]["payload"]["toZone"] == "Exile"
         
         # 新しいトークンが生成される
         assert events[1]["type"] == "CreateToken"
         assert events[1]["payload"]["baseCardId"] == "token_004"
         assert events[1]["payload"]["zone"] == "Field"
         
-        # 元カードが ExileZone に移動していることを確認
-        assert cocoon_card["zone"] == "ExileZone"
+        # 元カードが Exile に移動していることを確認
+        assert cocoon_card["zone"] == "Exile"
         
         # 新しいトークンが追加されていることを確認
         assert len(item["cards"]) == 2

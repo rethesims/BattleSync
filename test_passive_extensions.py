@@ -8,7 +8,7 @@ def test_zone_constants():
     """対象ゾーンリストの定数定義テスト"""
     expected_zones = [
         "Field", "Environment", "Counter", "Hand", 
-        "Deck", "Graveyard", "ExileZone", "DamageZone"
+        "Deck", "Graveyard", "Exile", "DamageZone"
     ]
     assert TARGET_ZONES == expected_zones
     print("✓ TARGET_ZONES constant defined correctly")
