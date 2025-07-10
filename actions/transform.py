@@ -6,7 +6,15 @@ def handle_transform(card, act, item, owner_id):
     カードを別のカードに変身
     selectionKey サポート追加：選択結果に基づいて変身先を決定
     """
-    targets = resolve_targets(card, act, item)
+    # Transform アクションで selectionKey が変身先を決定するために使用されている場合、
+    # resolve_targets で selectionKey を使用してはいけない
+    # 代わりに target パラメータを使用してターゲットを決定する
+    act_for_targets = act.copy()
+    if act.get("selectionKey") and act.get("target"):
+        # selectionKey は変身先の決定に使用されるため、resolve_targets では無視する
+        act_for_targets.pop("selectionKey", None)
+    
+    targets = resolve_targets(card, act_for_targets, item)
     
     # 変身先の決定
     transform_to = ""
