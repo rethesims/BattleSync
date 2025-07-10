@@ -12,27 +12,6 @@ def handle_transform(card, act, item, owner_id):
     """
     logger.info(f"handle_transform: START - Transform処理開始 card={card['id']} owner={owner_id}")
     
-    # --- ① スロット演出用のイベントを先出し ---
-    selection_key = act.get("selectionKey")
-    options = act.get("options", [])
-    selected = ""
-    
-    # choiceResponses から選択済み値を拾う
-    if selection_key:
-        resp = next((r for r in item.get("choiceResponses", []) if r.get("requestId") == selection_key), None)
-        if resp:
-            selected = resp.get("selectedValue", "")
-    
-    slot_event = {
-        "type": "SelectOptionResult",
-        "payload": {
-            "selectionKey": selection_key,
-            "options": options,
-            "selectedValue": selected
-        }
-    }
-    logger.info(f"handle_transform: Slot event created selectionKey={selection_key}, selectedValue={selected}")
-    
     # 元のゾーンを保存
     original_zone = card.get("zone")
     logger.info(f"handle_transform: original zone={original_zone}")
@@ -42,7 +21,7 @@ def handle_transform(card, act, item, owner_id):
     
     if not transform_to:
         logger.warning(f"handle_transform: No transform target found for card {card['id']}")
-        return [slot_event]
+        return []
     
     # 2. 元カード（Self）を Exile に移動
     exile_events = _move_card_to_exile(card, item)
@@ -51,7 +30,7 @@ def handle_transform(card, act, item, owner_id):
     token_events = _create_transform_token(transform_to, card, item, owner_id, original_zone)
     
     logger.info(f"handle_transform: COMPLETE - Transform処理完了 transform_to={transform_to}")
-    return [slot_event] + exile_events + token_events
+    return exile_events + token_events
 
 
 def _get_transform_target(act, item):

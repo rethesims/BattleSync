@@ -40,6 +40,16 @@ def handle_select_option(card, act, item, owner_id):
             "selectedValue": selected_value
         })
         
+        # SelectOptionResult を追加
+        item.setdefault("results", []).append({
+            "type": "SelectOptionResult",
+            "payload": {
+                "selectionKey": selection_key,
+                "options": options,
+                "selectedValue": selected_value
+            }
+        })
+        
         return [{
             "type": "SelectOption",
             "payload": {
