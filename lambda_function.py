@@ -225,7 +225,18 @@ def apply_action(card, act, item, owner_id):
     logger.info(f"apply_action: card={card['id']} action={act['type']} owner={owner_id}")
 
     # ① 対象を解決する
-    targets = resolve_targets(card, act, item)
+    # Transform アクション専用の特別処理
+    if act["type"] == "Transform" and act.get("selectionKey"):
+        # selectionKey は変身先決定用なので、ターゲット解決から除外
+        act_for_targets = act.copy()
+        act_for_targets.pop("selectionKey", None)
+        if not act_for_targets.get("target"):
+            act_for_targets["target"] = "Self"  # デフォルトでSelfを対象
+        targets = resolve_targets(card, act_for_targets, item)
+        logger.info(f"  Transform action - excluded selectionKey from target resolution")
+    else:
+        targets = resolve_targets(card, act, item)
+    
     logger.info(f"  targets resolved: {[t['id'] for t in targets]}")
     events = []
 
