@@ -75,11 +75,14 @@ def resolve_targets(src: Dict[str, Any], action: Dict[str, Any], item: Dict[str,
         responses = item.get("choiceResponses", [])
         # 例: {'requestId': sel_key, 'selectedIds': ['c1','c2',...]}
         resp = next((r for r in responses if r.get("requestId") == sel_key), None)
-        if resp and resp.get("selectedIds"):
-            targets = [c for c in item["cards"] if c["id"] in resp["selectedIds"]]
-            # 使用済みのchoiceResponseをクリア
-            cleanup_used_choice_response(item, sel_key)
-            return targets
+        if resp:
+            # selectedIds があればそちらを優先、なければ selectedValue を１件として扱う
+            ids = resp.get("selectedIds",
+                          [resp["selectedValue"]] if resp.get("selectedValue") else [])
+            if ids:
+                targets = [c for c in item["cards"] if c["id"] in ids]
+                cleanup_used_choice_response(item, sel_key)
+                return targets
 
     if action["type"] == "Draw":
         return [src]
