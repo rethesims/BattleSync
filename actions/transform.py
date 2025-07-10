@@ -1,5 +1,5 @@
 # actions/transform.py
-from helper import resolve_targets
+from helper import resolve_targets, fetch_card_masters, d
 
 def handle_transform(card, act, item, owner_id):
     """
@@ -38,6 +38,9 @@ def handle_transform(card, act, item, owner_id):
     if not transform_to:
         return []
     
+    # 変身先のカードマスター情報を取得
+    card_masters = fetch_card_masters([transform_to])
+    
     for target in targets:
         # 変身前の情報を保存
         original_id = target["baseCardId"]
@@ -45,16 +48,39 @@ def handle_transform(card, act, item, owner_id):
         # 変身実行
         target["baseCardId"] = transform_to
         
+        # カードマスターデータがある場合、カードの基本属性を更新
+        if transform_to in card_masters:
+            master_data = card_masters[transform_to]
+            
+            # 基本属性の更新
+            if "power" in master_data:
+                target["power"] = d(master_data["power"])
+                target["currentPower"] = d(master_data["power"])
+            
+            if "damage" in master_data:
+                target["damage"] = d(master_data["damage"])
+                target["currentDamage"] = d(master_data["damage"])
+            
+            if "level" in master_data:
+                target["level"] = d(master_data["level"])
+                target["currentLevel"] = d(master_data["level"])
+            
+            # effectList を更新（新しいカードの能力を取得）
+            if "effectList" in master_data:
+                target["effectList"] = master_data["effectList"]
+        
         # 変身時はステータスもリセット（オプション）
         if act.get("resetStatuses", False):
             target["statuses"] = []
             target["tempStatuses"] = []
         
-        # power/damage のリセットや引き継ぎ処理
+        # power/damage のリセットや引き継ぎ処理（手動指定の場合）
         if act.get("resetPower", False):
-            target["power"] = 1000  # デフォルト値
+            target["power"] = d(1000)  # デフォルト値
+            target["currentPower"] = d(1000)
         if act.get("resetDamage", False):
-            target["damage"] = 0
+            target["damage"] = d(0)
+            target["currentDamage"] = d(0)
         
         # 変身イベントを生成
         events.append({
