@@ -224,9 +224,22 @@ def apply_action(card, act, item, owner_id):
     
     logger.info(f"apply_action: card={card['id']} action={act['type']} owner={owner_id}")
 
-    # ① 対象を解決する
-    targets = resolve_targets(card, act, item)
-    logger.info(f"  targets resolved: {[t['id'] for t in targets]}")
+    # ① Transform アクションの特別処理
+    if act["type"] == "Transform" and act.get("selectionKey"):
+        # Transform アクションで selectionKey が指定されている場合、
+        # selectionKey は変身先を決定するためのものであり、ターゲット解決には使用しない
+        act_for_targets = act.copy()
+        act_for_targets.pop("selectionKey", None)
+        # target が指定されていない場合は Self をデフォルトに
+        if not act_for_targets.get("target"):
+            act_for_targets["target"] = "Self"
+        targets = resolve_targets(card, act_for_targets, item)
+        logger.info(f"  Transform special handling: targets resolved: {[t['id'] for t in targets]}")
+    else:
+        # ① 通常の対象解決
+        targets = resolve_targets(card, act, item)
+        logger.info(f"  targets resolved: {[t['id'] for t in targets]}")
+    
     events = []
 
     # ② 各対象に対してハンドラを実行
