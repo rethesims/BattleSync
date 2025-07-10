@@ -101,7 +101,7 @@ def test_create_token_different_zones():
         ("Graveyard", "Graveyard"),
         ("Environment", "Environment"),
         ("Counter", "Counter"),
-        ("ExileZone", "ExileZone"),
+        ("ExileZone", "Exile"),
         ("DamageZone", "DamageZone"),
         ("UnknownZone", "Field")  # 不明なゾーンはFieldにマップ
     ]

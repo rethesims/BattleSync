@@ -7,7 +7,7 @@ logger = logging.getLogger()
 
 def handle_transform(card, act, item, owner_id):
     """
-    Transform: 新しいトークンを生成し、元カードを ExileZone に移動
+    Transform: 新しいトークンを生成し、元カードを Exile に移動
     SelectOption の結果に基づいて変身先トークンを決定
     """
     logger.info(f"handle_transform: START - Transform処理開始 card={card['id']} owner={owner_id}")
@@ -23,7 +23,7 @@ def handle_transform(card, act, item, owner_id):
         logger.warning(f"handle_transform: No transform target found for card {card['id']}")
         return []
     
-    # 2. 元カード（Self）を ExileZone に移動
+    # 2. 元カード（Self）を Exile に移動
     exile_events = _move_card_to_exile(card, item)
     
     # 3. 新しいトークンを生成（元カードと同じゾーンに）
@@ -76,18 +76,18 @@ def _get_transform_target(act, item):
 
 
 def _move_card_to_exile(card, item):
-    """元カードを ExileZone に移動"""
+    """元カードを Exile に移動"""
     from_zone = card.get("zone")
-    logger.info(f"_move_card_to_exile: Moving card {card['id']} from {from_zone} to ExileZone")
-    card["zone"] = "ExileZone"
-    logger.info(f"_move_card_to_exile: moved card to ExileZone")
+    logger.info(f"_move_card_to_exile: Moving card {card['id']} from {from_zone} to Exile")
+    card["zone"] = "Exile"
+    logger.info(f"_move_card_to_exile: moved card to Exile")
     
     return [{
         "type": "MoveZone",
         "payload": {
             "cardId": card["id"],
             "fromZone": from_zone,
-            "toZone": "ExileZone"
+            "toZone": "Exile"
         }
     }]
 

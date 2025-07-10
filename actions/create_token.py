@@ -26,7 +26,7 @@ def handle_create_token(card, act, item, owner_id):
         "Graveyard": "Graveyard",
         "Environment": "Environment",
         "Counter": "Counter",
-        "ExileZone": "ExileZone",
+        "ExileZone": "Exile",
         "DamageZone": "DamageZone"
     }
     
