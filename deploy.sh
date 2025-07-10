@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# 1. zip の出力先
 ZIP_FILE=./syncbattle.zip
-
-# 2. 既存の zip を削除
 [ -f "$ZIP_FILE" ] && rm "$ZIP_FILE"
 
-# 3. ディレクトリ丸ごと zip 化（必要なファイルだけ include すれば更に軽くできます）
-zip -r "$ZIP_FILE" . -x 'deploy.sh'
+# ─── ここを修正 ───
+# -j を外して、actions/ フォルダはそのままディレクトリ構造で追加
+zip -r "$ZIP_FILE" \
+  lambda_function.py \
+  helper.py \
+  action_registry.py \
+  actions/
 
-# 4. AWS CLI で Lambda に直接デプロイ
+# Lambda にデプロイ
 aws lambda update-function-code \
   --function-name DCG_Sync_Battle \
   --zip-file "fileb://$ZIP_FILE"
