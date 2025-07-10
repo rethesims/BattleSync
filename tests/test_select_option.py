@@ -48,10 +48,14 @@ def test_handle_select_option_server_side():
         events = handle_select_option(card, act, item, owner_id)
         
         # イベントが正しく生成されることを確認
-        assert len(events) == 1
+        assert len(events) == 2
         assert events[0]["type"] == "SelectOption"
         assert events[0]["payload"]["selectedValue"] == "token_002"
         assert events[0]["payload"]["selectionKey"] == "test_key"
+        assert events[1]["type"] == "SelectOptionResult"
+        assert events[1]["payload"]["selectedValue"] == "token_002"
+        assert events[1]["payload"]["selectionKey"] == "test_key"
+        assert events[1]["payload"]["playerId"] == "player1"
         
         # choiceResponses に追加されることを確認
         assert len(item["choiceResponses"]) == 1
@@ -119,3 +123,52 @@ def test_weighted_random_select_edge_cases():
     
     # 単一の選択肢
     assert weighted_random_select(["A"], [10]) == "A"
+
+def test_select_option_result_event_processing():
+    """SelectOptionResult イベントによる deferred アクション実行のテスト"""
+    from lambda_function import resolve
+    
+    # テスト用のitem
+    item = {
+        "cards": [
+            {"id": "test_card", "ownerId": "player1", "zone": "Field"}
+        ],
+        "choiceResponses": [],
+        "pendingDeferred": [
+            {
+                "type": "Destroy",
+                "sourceCardId": "test_card",
+                "selectionKey": "test_key",
+                "trigger": "OnSummon"
+            }
+        ]
+    }
+    
+    # SelectOptionResult イベント
+    events = [
+        {
+            "type": "SelectOptionResult",
+            "payload": {
+                "selectionKey": "test_key",
+                "selectedValue": "token_002",
+                "playerId": "player1"
+            }
+        }
+    ]
+    
+    # resolve 関数で処理
+    result_events = resolve(events, item)
+    
+    # 結果を検証
+    # 1. choiceResponses に選択結果が追加されている
+    assert len(item["choiceResponses"]) == 1
+    assert item["choiceResponses"][0]["requestId"] == "test_key"
+    assert item["choiceResponses"][0]["selectedValue"] == "token_002"
+    assert item["choiceResponses"][0]["playerId"] == "player1"
+    
+    # 2. pendingDeferred から該当するアクションが削除されている
+    assert len(item["pendingDeferred"]) == 0
+    
+    # 3. Destroy イベントが実行されている
+    destroy_events = [e for e in result_events if e["type"] == "Destroy"]
+    assert len(destroy_events) >= 1

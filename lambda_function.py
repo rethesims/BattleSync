@@ -197,7 +197,8 @@ def resolve(initial, item):
     
     処理フロー:
     1. 通常のトリガーイベント（OnSummon、OnEnterFieldなど）
-    2. 追加されたイベントの再帰的な処理
+    2. SelectOptionResult イベントの処理（pendingDeferred アクション実行）
+    3. 追加されたイベントの再帰的な処理
     """
     evs = list(initial)
     i = 0
@@ -205,7 +206,42 @@ def resolve(initial, item):
         event_type = evs[i]["type"]
         pld = _payload_to_dict(evs[i]["payload"])
         
-        # トリガーイベントの処理
+        # SelectOptionResult イベントの特別処理
+        if event_type == "SelectOptionResult":
+            selection_key = pld.get("selectionKey")
+            selected_value = pld.get("selectedValue")
+            player_id = pld.get("playerId")
+            
+            if selection_key and selected_value and player_id:
+                # choiceResponses に選択結果を追加（まだ追加されていない場合）
+                choice_responses = item.get("choiceResponses", [])
+                if not any(r.get("requestId") == selection_key for r in choice_responses):
+                    item.setdefault("choiceResponses", []).append({
+                        "requestId": selection_key,
+                        "playerId": player_id,
+                        "selectedValue": selected_value
+                    })
+                
+                # pendingDeferred から該当するアクションを実行
+                new_pending = []
+                for act in item.get("pendingDeferred", []):
+                    if act.get("selectionKey") == selection_key:
+                        # 該当するアクションを実行
+                        handler = get_handler(act["type"])
+                        if handler:
+                            source_card = next((c for c in item["cards"] if c["id"] == act["sourceCardId"]), None)
+                            if source_card:
+                                evs += handler(source_card, act, item, player_id)
+                                logger.info(f"  executed deferred action {act['type']} for selectionKey {selection_key}")
+                            else:
+                                logger.warning(f"Source card {act['sourceCardId']} not found for deferred action")
+                        else:
+                            logger.warning(f"Handler not found for deferred action type: {act['type']}")
+                    else:
+                        new_pending.append(act)
+                item["pendingDeferred"] = new_pending
+        
+        # 通常のトリガーイベントの処理
         cid = pld.get("cardId")
         card = next((c for c in item["cards"] if c["id"] == cid), None)
         if card:
