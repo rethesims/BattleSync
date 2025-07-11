@@ -10,23 +10,56 @@ def handle_process_damage(card, act, item, owner_id):
     3. カラー付与（TO使用しない場合）
     4. 反射ダメージチェイン
     5. OnDamageトリガー
+    
+    対象指定:
+    - targetPlayerId: 具体的なプレイヤーID
+    - target: "PlayerLeader", "EnemyLeader", "BothLeaders"
     """
     damage_value = int(act.get("value", 1))
     target_player_id = act.get("targetPlayerId")
+    target_type = act.get("target")
     
-    if not target_player_id:
+    # 対象プレイヤーを決定
+    target_player_ids = []
+    
+    if target_type == "PlayerLeader":
+        target_player_ids = [owner_id]
+    elif target_type == "EnemyLeader":
+        enemy_id = next((p["id"] for p in item["players"] if p["id"] != owner_id), None)
+        if enemy_id:
+            target_player_ids = [enemy_id]
+    elif target_type == "BothLeaders":
+        target_player_ids = [p["id"] for p in item["players"]]
+    elif target_player_id:
+        target_player_ids = [target_player_id]
+    else:
         # デフォルトで敵プレイヤーを対象とする
-        target_player_id = next((p["id"] for p in item["players"] if p["id"] != owner_id), None)
+        enemy_id = next((p["id"] for p in item["players"] if p["id"] != owner_id), None)
+        if enemy_id:
+            target_player_ids = [enemy_id]
     
-    if not target_player_id:
+    if not target_player_ids:
         return []
     
     events = []
     
-    # プレイヤー情報を取得
-    target_player = next((p for p in item["players"] if p["id"] == target_player_id), None)
-    if not target_player:
-        return []
+    # 各対象プレイヤーにダメージを処理
+    for target_id in target_player_ids:
+        target_player = next((p for p in item["players"] if p["id"] == target_id), None)
+        if not target_player:
+            continue
+        
+        # プレイヤー別のダメージ処理を実行
+        damage_events = process_damage_for_player(target_id, damage_value, act, item, owner_id)
+        events.extend(damage_events)
+    
+    return events
+
+def process_damage_for_player(target_player_id, damage_value, act, item, owner_id):
+    """
+    指定されたプレイヤーに対してダメージ処理を実行
+    """
+    events = []
     
     # デッキから指定枚数のカードを取得
     deck_cards = [c for c in item["cards"] if c["zone"] == "Deck" and c["ownerId"] == target_player_id]

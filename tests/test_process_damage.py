@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from actions.process_damage import handle_process_damage, check_reflection_damage, process_to_selection_result
+from actions.process_damage import handle_process_damage, check_reflection_damage, process_to_selection_result, process_damage_for_player
 
 def test_process_damage_basic():
     """基本的なダメージ処理のテスト"""
@@ -201,3 +201,103 @@ def test_process_damage_no_reflection():
     
     # 結果検証：反射ダメージはなし
     assert len(events) == 0
+
+def test_process_damage_player_leader():
+    """PlayerLeaderターゲットのテスト"""
+    # テストデータ
+    card = {"id": "attacker1", "ownerId": "player1"}
+    act = {"value": 1, "target": "PlayerLeader"}
+    item = {
+        "players": [
+            {"id": "player1", "hp": 20},
+            {"id": "player2", "hp": 20}
+        ],
+        "cards": [
+            {"id": "deck1", "cardId": "card1", "zone": "Deck", "ownerId": "player1"}
+        ]
+    }
+    owner_id = "player1"
+    
+    # モックカードマスターデータ
+    mock_card_masters = {
+        "card1": {"name": "Test Card 1", "isTO": False, "availableColors": ["Red", "Blue"]}
+    }
+    
+    with patch('actions.process_damage.fetch_card_masters', return_value=mock_card_masters):
+        events = handle_process_damage(card, act, item, owner_id)
+    
+    # 結果検証：自分自身にダメージ
+    assert len(events) >= 3  # MoveZone + AssignColor + AbilityActivated
+    
+    # OnDamageトリガーの検証
+    ability_events = [e for e in events if e["type"] == "AbilityActivated"]
+    assert len(ability_events) == 1
+    assert ability_events[0]["payload"]["targetPlayerId"] == "player1"
+
+def test_process_damage_enemy_leader():
+    """EnemyLeaderターゲットのテスト"""
+    # テストデータ
+    card = {"id": "attacker1", "ownerId": "player1"}
+    act = {"value": 1, "target": "EnemyLeader"}
+    item = {
+        "players": [
+            {"id": "player1", "hp": 20},
+            {"id": "player2", "hp": 20}
+        ],
+        "cards": [
+            {"id": "deck1", "cardId": "card1", "zone": "Deck", "ownerId": "player2"}
+        ]
+    }
+    owner_id = "player1"
+    
+    # モックカードマスターデータ
+    mock_card_masters = {
+        "card1": {"name": "Test Card 1", "isTO": False, "availableColors": ["Red", "Blue"]}
+    }
+    
+    with patch('actions.process_damage.fetch_card_masters', return_value=mock_card_masters):
+        events = handle_process_damage(card, act, item, owner_id)
+    
+    # 結果検証：敵プレイヤーにダメージ
+    assert len(events) >= 3  # MoveZone + AssignColor + AbilityActivated
+    
+    # OnDamageトリガーの検証
+    ability_events = [e for e in events if e["type"] == "AbilityActivated"]
+    assert len(ability_events) == 1
+    assert ability_events[0]["payload"]["targetPlayerId"] == "player2"
+
+def test_process_damage_both_leaders():
+    """BothLeadersターゲットのテスト"""
+    # テストデータ
+    card = {"id": "attacker1", "ownerId": "player1"}
+    act = {"value": 1, "target": "BothLeaders"}
+    item = {
+        "players": [
+            {"id": "player1", "hp": 20},
+            {"id": "player2", "hp": 20}
+        ],
+        "cards": [
+            {"id": "deck1", "cardId": "card1", "zone": "Deck", "ownerId": "player1"},
+            {"id": "deck2", "cardId": "card2", "zone": "Deck", "ownerId": "player2"}
+        ]
+    }
+    owner_id = "player1"
+    
+    # モックカードマスターデータ
+    mock_card_masters = {
+        "card1": {"name": "Test Card 1", "isTO": False, "availableColors": ["Red", "Blue"]},
+        "card2": {"name": "Test Card 2", "isTO": False, "availableColors": ["Green", "Yellow"]}
+    }
+    
+    with patch('actions.process_damage.fetch_card_masters', return_value=mock_card_masters):
+        events = handle_process_damage(card, act, item, owner_id)
+    
+    # 結果検証：両方のプレイヤーにダメージ
+    assert len(events) >= 6  # MoveZone x2 + AssignColor x2 + AbilityActivated x2
+    
+    # OnDamageトリガーの検証
+    ability_events = [e for e in events if e["type"] == "AbilityActivated"]
+    assert len(ability_events) == 2
+    target_player_ids = [e["payload"]["targetPlayerId"] for e in ability_events]
+    assert "player1" in target_player_ids
+    assert "player2" in target_player_ids

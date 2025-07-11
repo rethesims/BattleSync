@@ -659,7 +659,7 @@ def calc_total_power(card):
 
 def resolve_battle(item, events):
     """
-    pendingBattle を見て、Destroy / Damage などのイベントを追加し
+    pendingBattle を見て、Destroy / ProcessDamage などのイベントを追加し
     battleStep を CleanUp へ進める
     """
     pb = item.get("pendingBattle") or {}
@@ -676,10 +676,15 @@ def resolve_battle(item, events):
     # ----- ① リーダー攻撃の場合 -----
     if is_leader:
         dmg = int(atk.get("damage", 0))
-        events.append({
-            "type": "Damage",
-            "payload": {"playerId": pb["targetOwnerId"], "amount": dmg},
-        })
+        # ProcessDamageアクションを使用
+        process_damage_action = {
+            "type": "ProcessDamage",
+            "value": dmg,
+            "target": "EnemyLeader"
+        }
+        events.extend(
+            apply_action(None, process_damage_action, item, atk["ownerId"])
+        )
 
     # ----- ② ユニット vs ユニット の場合 -----
     else:
@@ -691,10 +696,15 @@ def resolve_battle(item, events):
             if atk.get("IsCritical"):
                 overflow = atk_pow - tgt_pow - int(tgt.get("damage", 0))
                 if overflow > 0:
-                    events.append({
-                        "type": "Damage",
-                        "payload": {"playerId": tgt["ownerId"], "amount": overflow},
-                    })
+                    # ProcessDamageアクションを使用
+                    process_damage_action = {
+                        "type": "ProcessDamage",
+                        "value": overflow,
+                        "targetPlayerId": tgt["ownerId"]
+                    }
+                    events.extend(
+                        apply_action(None, process_damage_action, item, atk["ownerId"])
+                    )
         elif atk_pow < tgt_pow:  # 負け
             destroy_ids.append(atk["id"])
         else:  # 相打ち
@@ -707,6 +717,9 @@ def resolve_battle(item, events):
             crd["zone"] = "Graveyard"
     if destroy_ids:
         events.append({"type": "Destroy", "payload": {"cardIds": destroy_ids}})
+    
+    # バトル解決完了
+    item["battleStep"] = "CleanUp"
 
 # ----------------------
 #  リーダー処理
