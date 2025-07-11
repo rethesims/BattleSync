@@ -747,6 +747,161 @@ def _check_optional_ability_activation(card, effect, item):
     return req_id  # 選択待ち状態（リクエストIDを返す）
 
 
+# =================== Card Type Handlers ==============================
+def handle_monster_summon(card, item):
+    """モンスター召喚処理"""
+    events = []
+    
+    # 既存のモンスター召喚イベントを生成
+    events.append({
+        "type": "OnSummon",
+        "payload": {"cardId": card["id"]}
+    })
+    events.append({
+        "type": "OnEnterField",
+        "payload": {"cardId": card["id"]}
+    })
+    
+    logger.info(f"Monster summon handled for card {card['id']}")
+    return events
+
+
+def handle_persistent_spell(card, item):
+    """永続スペル処理"""
+    events = []
+    
+    # 永続スペルはフィールドに配置される
+    events.append({
+        "type": "OnPlay",
+        "payload": {"cardId": card["id"]}
+    })
+    events.append({
+        "type": "RegisterFieldEffect",
+        "payload": {
+            "cardId": card["id"],
+            "effectType": "PersistentSpell"
+        }
+    })
+    
+    logger.info(f"Persistent spell handled for card {card['id']}")
+    return events
+
+
+def handle_normal_spell(card, item):
+    """通常スペル処理"""
+    events = []
+    
+    # 通常スペルは発動後に墓地に移動
+    events.append({
+        "type": "OnPlay",
+        "payload": {"cardId": card["id"]}
+    })
+    
+    # 墓地に移動
+    card["zone"] = "Graveyard"
+    events.append({
+        "type": "MoveZone",
+        "payload": {
+            "cardId": card["id"],
+            "fromZone": "Hand",
+            "toZone": "Graveyard"
+        }
+    })
+    
+    logger.info(f"Normal spell handled for card {card['id']}")
+    return events
+
+
+def handle_field_card(card, item):
+    """フィールドカード処理"""
+    events = []
+    
+    # フィールドカードは環境ゾーンに配置
+    card["zone"] = "Environment"
+    events.append({
+        "type": "OnPlay",
+        "payload": {"cardId": card["id"]}
+    })
+    events.append({
+        "type": "MoveZone",
+        "payload": {
+            "cardId": card["id"],
+            "fromZone": "Hand",
+            "toZone": "Environment"
+        }
+    })
+    
+    logger.info(f"Field card handled for card {card['id']}")
+    return events
+
+
+def notify_summon_card(item, card_id, owner_id):
+    """
+    カードタイプ別の召喚処理を実行
+    """
+    logger.info(f"notify_summon_card called for card {card_id} by owner {owner_id}")
+    
+    # カードを取得
+    card = next((c for c in item["cards"] if c["id"] == card_id), None)
+    if not card:
+        logger.error(f"Card {card_id} not found in match")
+        return []
+    
+    # マスターデータを取得
+    base_card_id = card.get("baseCardId")
+    if not base_card_id:
+        logger.error(f"Card {card_id} has no baseCardId")
+        return []
+    
+    masters = fetch_card_masters([base_card_id])
+    master = masters.get(base_card_id)
+    if not master:
+        logger.error(f"Master data not found for card {base_card_id}")
+        return []
+    
+    # カードタイプを取得
+    card_type = master.get("cardType")
+    if not card_type:
+        logger.warning(f"Card {base_card_id} has no cardType, defaulting to Monster")
+        card_type = "Monster"
+    
+    logger.info(f"Processing card type: {card_type} for card {card_id}")
+    
+    # カードタイプ別の処理
+    if card_type == "Monster":
+        # モンスター召喚：既存の処理
+        detach_auras(card, item["cards"])
+        card["zone"] = "Field"
+        events = handle_monster_summon(card, item)
+        
+    elif card_type == "Spell":
+        # スペル処理：永続スペルかどうかで分岐
+        is_persistent = master.get("isPersistentSpell", False)
+        if is_persistent:
+            # 永続スペル：フィールドに配置
+            detach_auras(card, item["cards"])
+            card["zone"] = "Field"
+            events = handle_persistent_spell(card, item)
+        else:
+            # 通常スペル：発動 → 墓地
+            events = handle_normal_spell(card, item)
+            
+    elif card_type == "Field":
+        # フィールドカード：環境ゾーンに配置
+        events = handle_field_card(card, item)
+        
+    elif card_type == "Equip":
+        # 装備カード：現在は未実装、将来的に追加
+        logger.warning(f"Equip card type not yet implemented for card {card_id}")
+        events = []
+        
+    else:
+        logger.warning(f"Unsupported cardType: {card_type} for card {card_id}")
+        events = []
+    
+    return events
+
+
 # =================== Lambda ENTRY =============================
 def lambda_handler(event, context):
     field=event["info"]["fieldName"]; args=event.get("arguments",{})
@@ -848,11 +1003,11 @@ def lambda_handler(event, context):
                 }
             }
             return {"match": json.loads(json.dumps(item, cls=DecimalEncoder)), "events": [error_event]}
-        detach_auras(card,item["cards"])
-        card["zone"]="Field"
-        trig=[{"type":"OnSummon","payload":{"cardId":cid}},
-              {"type":"OnEnterField","payload":{"cardId":cid}}]
-        evs=resolve(trig,item)
+        # カードタイプ別の召喚処理を実行
+        card_events = notify_summon_card(item, cid, card["ownerId"])
+        
+        # 生成されたイベントを resolve で処理
+        evs = resolve(card_events, item)
         
         item["updatedAt"]=now_iso()
         bump(item)
